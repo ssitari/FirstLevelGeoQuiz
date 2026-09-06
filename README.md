@@ -78,13 +78,15 @@ the `prominence()` / `tier_for()` / `distinctiveness()` functions.
   instead of running through open water. The plain variant makes lake-bordering
   units like Wisconsin unrecognizable. ~4,590 features; ~4,480 after
   sliver/tiny-island filtering.
-- Output is **TopoJSON** (shared arcs + quantization), ~4.9 MB / ~1.6 MB gzipped.
+- Output is **TopoJSON** (shared arcs + quantization), ~5.3 MB / ~1.8 MB gzipped.
 - Simplification uses a **per-feature distance threshold** (`≈ SIMPLIFY_K ·
   sqrt(area_km²)` metres), not a percentage. A flat percentage keeps thousands of
   points on a huge province that will never be shown at that detail while gutting
   a small one; the per-feature threshold gives every silhouette the same on-screen
-  fidelity (e.g. Nunavut drops from ~28,000 points to ~1,200; Utrecht rises from
-  ~70 to ~250).
+  fidelity. Lower `SIMPLIFY_K` = finer and larger.
+- **Boundary currency:** some Natural Earth admin-1 divisions are out of date
+  (Kenya's abolished provinces, Nepal's abolished zones, …). Tracked in
+  [`docs/data-currency.md`](docs/data-currency.md).
 - Natural Earth's `labelrank` turns out to encode the *country*, not unit fame,
   so it isn't used. Prominence is built from area + largest-city population +
   capital status instead.
