@@ -14,9 +14,9 @@ Do not hand-key boundaries or counts from memory.
 
 ## 1. Stale subdivisions
 
-Candidates surfaced by comparing NE's admin-1 count to ISO 3166-2 (see the
-`province_counts.csv` audit (in this folder)). ISO 3166-2 is a cross-check, not ground truth — it
-sometimes counts a different level. Confirm each against a primary source before
+Candidates surfaced by comparing NE's admin-1 count to ISO 3166-2 (see
+`province_counts.csv` in this folder). ISO 3166-2 is a cross-check, not ground
+truth — it sometimes counts a different level. Confirm each against a primary source before
 patching.
 
 | Country | NE has | Believed current | Change | Source (fill in) | Status |
