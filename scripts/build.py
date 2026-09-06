@@ -40,7 +40,7 @@ SRC_PP = os.path.join(CACHE, "ne_10m_populated_places_simple.geojson")
 # unit): sqrt(area_km²) × K metres. A percentage retention instead would gut a
 # small province (28% of few points) while a huge one keeps thousands it will
 # never show — this gives every silhouette the same on-screen fidelity.
-SIMPLIFY_K = 10
+SIMPLIFY_K = 6
 QUANTIZATION = "1e6"     # TopoJSON coord grid (~40 m); no visible stair-stepping
 
 
