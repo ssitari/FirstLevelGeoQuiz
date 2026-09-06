@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>First-Level Geo Quiz</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    [hidden] { display: none !important; }
+
+    :root {
+      --bg: #edecea;
+      --card: #ffffff;
+      --ink: #23282e;
+      --muted: #7c7a74;
+      --line: #dcdad4;
+      --accent: #c8542b;
+      --good: #2f7d4f;
+      --bad: #b23b3b;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.5;
+    }
+
+    /* ── Top bar ── */
+    #bar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 9px 16px;
+      background: var(--card);
+      border-bottom: 1px solid var(--line);
+      flex-wrap: wrap;
+    }
+    #bar h1 { font-size: 15px; font-weight: 650; white-space: nowrap; }
+    #modes { display: flex; gap: 4px; }
+    #modes button {
+      font: inherit; font-size: 12px;
+      padding: 4px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fafafa;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    #modes button:hover { border-color: #bbb; }
+    #modes button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+    #hud {
+      margin-left: auto;
+      display: flex;
+      gap: 14px;
+      font-size: 12px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    #hud b { color: var(--ink); font-weight: 650; }
+    #help-btn {
+      font: inherit; width: 24px; height: 24px;
+      border: 1px solid var(--line); border-radius: 50%;
+      background: #fafafa; color: var(--muted); cursor: pointer;
+    }
+
+    /* ── Layout ── */
+    main {
+      flex: 1;
+      width: 100%;
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 18px 16px 28px;
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .panel h2 { font-size: 17px; margin-bottom: 6px; }
+    .panel p { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+
+    button.primary {
+      font: inherit; font-weight: 600; font-size: 14px;
+      padding: 9px 20px;
+      border: none; border-radius: 8px;
+      background: var(--accent); color: #fff;
+      cursor: pointer;
+    }
+    button.primary:hover { filter: brightness(1.06); }
+    button.ghost {
+      font: inherit; font-size: 13px;
+      padding: 8px 14px;
+      border: 1px solid var(--line); border-radius: 8px;
+      background: #fafafa; color: var(--muted); cursor: pointer;
+    }
+    button.ghost:hover { border-color: #bbb; color: var(--ink); }
+
+    #setup-controls { margin-bottom: 16px; }
+    #setup-controls label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+    #setup-controls select, #setup-controls input {
+      font: inherit; font-size: 13px;
+      width: 100%; padding: 8px 10px;
+      border: 1px solid var(--line); border-radius: 8px; background: #fafafa;
+    }
+    #best-line { margin-top: 14px; font-size: 12px; color: var(--muted); }
+
+    /* ── Stage ── */
+    #stage {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      text-align: center;
+    }
+    #silhouette, #locator { width: 100%; height: auto; display: block; }
+    #hints {
+      display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+      margin-top: 10px; min-height: 0;
+    }
+    .hint-chip {
+      font-size: 12px; padding: 4px 10px;
+      background: #f3f1ec; border: 1px solid var(--line);
+      border-radius: 999px; color: #55524c;
+    }
+    .hint-chip b { color: var(--ink); }
+
+    /* ── Guess ── */
+    #guess-form { margin-top: 14px; }
+    #wrongs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .wrong-chip {
+      font-size: 12px; padding: 3px 9px;
+      background: #fbeceb; border: 1px solid #f0cfcb;
+      color: var(--bad); border-radius: 999px;
+      text-decoration: line-through;
+    }
+    #ac-wrap { position: relative; }
+    #guess {
+      font: inherit; font-size: 15px;
+      width: 100%; padding: 11px 13px;
+      border: 1px solid var(--line); border-radius: 9px; background: var(--card);
+    }
+    #guess:focus { outline: 2px solid #c8542b55; border-color: var(--accent); }
+    #ac {
+      position: absolute; left: 0; right: 0; top: calc(100% + 4px);
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 9px; box-shadow: 0 8px 24px rgba(0,0,0,.10);
+      list-style: none; z-index: 30; overflow: hidden; max-height: 240px; overflow-y: auto;
+    }
+    #ac:empty { display: none; }
+    #ac li { padding: 8px 12px; font-size: 13px; cursor: pointer; }
+    #ac li small { color: var(--muted); }
+    #ac li.hl, #ac li:hover { background: #f3f1ec; }
+
+    #guess-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    #msg { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 16px; }
+
+    /* ── Reveal ── */
+    #reveal { margin-top: 14px; }
+    #reveal-info {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 16px; margin: 12px 0;
+    }
+    #reveal-info .rname { font-size: 20px; font-weight: 650; }
+    #reveal-info .rname.miss { color: var(--bad); }
+    #reveal-info .rsub { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+    #reveal-info dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 13px; }
+    #reveal-info dt { color: var(--muted); }
+    #reveal-info .pts { font-weight: 650; }
+    #reveal-info .pts.zero { color: var(--bad); }
+
+    /* ── Summary ── */
+    #summary h2 { margin-bottom: 12px; }
+    #summary .big { font-size: 34px; font-weight: 700; }
+    #summary ol { margin: 14px 0; padding-left: 0; list-style: none; }
+    #summary li {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; padding: 5px 0; border-bottom: 1px solid var(--line);
+    }
+    #summary li .mk { font-size: 15px; }
+    #summary li .nm { flex: 1; }
+    #summary li .pt { color: var(--muted); font-variant-numeric: tabular-nums; }
+    #summary-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+
+    /* ── Footer / help ── */
+    #credit {
+      max-width: 640px; margin: 0 auto; padding: 14px 16px 22px;
+      font-size: 11px; line-height: 1.5; color: var(--muted);
+    }
+    #credit a { color: #56534d; }
+
+    #help {
+      position: fixed; inset: 0; background: rgba(0,0,0,.35);
+      display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 100;
+    }
+    #help .box {
+      background: var(--card); border-radius: 12px; padding: 22px;
+      max-width: 440px; font-size: 13px;
+    }
+    #help h3 { margin-bottom: 8px; }
+    #help ul { margin: 8px 0 14px 18px; }
+    #help li { margin-bottom: 4px; }
+
+    @media (max-width: 480px) {
+      #bar { gap: 8px; }
+      #hud { width: 100%; margin-left: 0; order: 3; }
+    }
+  </style>
+</head>
+<body>
+  <header id="bar">
+    <h1>First-Level Geo Quiz</h1>
+    <nav id="modes">
+      <button data-mode="novice">Novice</button>
+      <button data-mode="intermediate">Intermediate</button>
+      <button data-mode="ironman">Ironman</button>
+      <button data-mode="daily">Daily</button>
+    </nav>
+    <div id="hud">
+      <span>Score <b id="hud-score">0</b></span>
+      <span id="hud-q">—</span>
+      <span>Streak <b id="hud-streak">×1.0</b></span>
+    </div>
+    <button id="help-btn" title="How to play">?</button>
+  </header>
+
+  <main>
+    <section id="setup" class="panel">
+      <h2 id="setup-title">Loading…</h2>
+      <p id="setup-desc"></p>
+      <div id="setup-controls"></div>
+      <button id="start-btn" class="primary" disabled>Start</button>
+      <div id="best-line"></div>
+    </section>
+
+    <section id="game" hidden>
+      <div id="stage">
+        <svg id="silhouette" viewBox="0 0 480 340" aria-label="silhouette to identify"></svg>
+        <div id="hints"></div>
+      </div>
+
+      <form id="guess-form">
+        <div id="wrongs"></div>
+        <div id="ac-wrap">
+          <input id="guess" type="text" autocomplete="off" autocapitalize="off"
+                 spellcheck="false" placeholder="Name the highlighted unit…">
+          <ul id="ac"></ul>
+        </div>
+        <div id="guess-actions">
+          <button type="submit" class="primary">Guess</button>
+          <button type="button" id="hint-btn" class="ghost">Hint</button>
+          <button type="button" id="giveup-btn" class="ghost">Give up</button>
+        </div>
+        <div id="msg"></div>
+      </form>
+
+      <div id="reveal" hidden>
+        <svg id="locator" viewBox="0 0 480 340" aria-label="answer location"></svg>
+        <div id="reveal-info"></div>
+        <button id="next-btn" class="primary">Next</button>
+      </div>
+    </section>
+
+    <section id="summary" class="panel" hidden></section>
+  </main>
+
+  <footer id="credit"></footer>
+
+  <div id="help" hidden>
+    <div class="box">
+      <h3>How to play</h3>
+      <p>A first-level administrative unit — a state, province, region, prefecture,
+         oblast — is shown in silhouette, north up. Name it.</p>
+      <ul>
+        <li><b>Novice</b> — pick one country; guess among its units.</li>
+        <li><b>Intermediate</b> — the whole world, weighted toward recognizable units.</li>
+        <li><b>Ironman</b> — uniformly random from all 4,000+ units. Good luck.</li>
+        <li><b>Daily</b> — five fixed puzzles, same for everyone, shareable.</li>
+      </ul>
+      <p>Each wrong guess reveals the next hint but costs points. Buying a hint
+         early costs more. Solve with no hints to build a streak multiplier.</p>
+      <button class="ghost" id="help-close">Close</button>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
