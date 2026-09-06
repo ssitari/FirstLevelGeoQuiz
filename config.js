@@ -15,6 +15,15 @@ export const CREDIT_HTML = `
 export const DATA_FILE = "./data/admin1.topojson";
 export const MANIFEST_FILE = "./data/manifest.json";
 
+// ── Community stats (optional) ──────────────────────────────
+// Base URL of the Cloudflare Worker in worker/. Empty string = fully disabled:
+// no network calls, no "X% of players" line, the 📊 button is hidden.
+export const STATS_API = "";
+// Don't show a per-unit solve rate until this many people have seen it.
+export const STATS_MIN_SAMPLE = 15;
+// Re-fetch the aggregate at most this often (cached in localStorage between).
+export const STATS_REFRESH_MIN = 10;
+
 // ── Round length ────────────────────────────────────────────
 export const ROUND_LENGTH = 10;
 export const DAILY_LENGTH = 5;

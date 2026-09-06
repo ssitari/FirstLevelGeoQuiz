@@ -46,6 +46,14 @@ A correct answer is worth `BASE_POINTS[mode]`, minus penalties:
 Six wrong guesses ends the question at zero. Every number above lives in
 [`config.js`](config.js) — tune to taste.
 
+## Community stats (optional)
+
+If `STATS_API` in `config.js` points at the Cloudflare Worker in [`worker/`](worker/),
+the reveal panel shows how often other players get each unit ("get this 34% of
+the time"), and the 📊 button opens a toughest / most-nailed list. Anonymous
+aggregate counters only — no identity, no per-game rows. Empty `STATS_API`
+disables it completely (no network calls). Deploy steps: [`worker/README.md`](worker/README.md).
+
 ## Running locally
 
 The page loads its data with `fetch()`, so it needs to be served over HTTP:

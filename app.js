@@ -304,6 +304,16 @@ function hintText(rung, rec) {
 
 function ladder() { return cfg.HINT_LADDER[state.mode] || cfg.HINT_LADDER.intermediate; }
 
+function revealPlayersLine(rec) {
+  const st = unitStat(rec.id);
+  if (!st) return "";
+  const solve = Math.round(st.solve * 100);
+  const clean = Math.round(st.clean * 100);
+  return `<dt>Players</dt><dd>get this <b>${solve}%</b> of the time`
+    + (clean ? ` · <b>${clean}%</b> with no hints` : "")
+    + ` <span style="color:var(--muted)">(n=${fmt(st.n)})</span></dd>`;
+}
+
 function distinctLabel(d) {
   if (d < 0.28) return "featureless — mostly straight borders";
   if (d < 0.5) return "low — few identifying features";
@@ -482,6 +492,7 @@ function finishQuestion(solved) {
       <dt>Area</dt><dd>~${fmt(c.rec.area)} km² (#${rank} of ${n} in country)</dd>
       ${c.rec.city ? `<dt>${c.rec.city.in_unit ? "Largest city" : "Nearest city"}</dt><dd>${c.rec.city.name}${c.rec.city.pop ? ` · ${fmt(c.rec.city.pop)}` : ""}</dd>` : ""}
       <dt>Outline</dt><dd>${distinctLabel(c.rec.distinct)}</dd>
+      ${revealPlayersLine(c.rec)}
       <dt>This round</dt><dd>${c.wrong.length} wrong · ${c.revealed.size} hint${c.revealed.size === 1 ? "" : "s"}</dd>
     </dl>
     <p style="margin:10px 0 0"><span class="pts ${points ? "" : "zero"}">${points ? "+" + fmt(points) : "no points"}</span>
@@ -509,6 +520,8 @@ function endGame() {
   if (state.mode === "daily") {
     writeJSON(`ps:daily:${todayKey()}`, { score: state.score, marks, solved });
   }
+
+  reportRound();
 
   sum.innerHTML = `
     <h2>${labelForMode(state.mode)} — done</h2>
@@ -701,10 +714,113 @@ function wire() {
   $("help-btn").onclick = () => { $("help").hidden = false; };
   $("help-close").onclick = () => { $("help").hidden = true; };
   $("help").onclick = (e) => { if (e.target.id === "help") $("help").hidden = true; };
+
+  $("stats-btn").onclick = openStats;
+  $("stats-close").onclick = () => { $("stats-modal").hidden = true; };
+  $("stats-modal").onclick = (e) => { if (e.target.id === "stats-modal") $("stats-modal").hidden = true; };
 }
 function hlAc() {
   const ac = $("ac");
   [...ac.children].forEach((li, i) => li.classList.toggle("hl", i === state.acHi));
+}
+
+// ─────────────────────────────────────────────────────────── community stats
+
+let STATS = null;   // { unit_id: { shown, solved, solved_clean, ... } }
+const statsBase = () => (cfg.STATS_API || "").replace(/\/+$/, "");
+
+async function loadStats() {
+  if (DEV && location.search.includes("mockstats")) {
+    mockStats();
+    $("stats-btn").hidden = false;
+    return;
+  }
+  if (!cfg.STATS_API) return;
+  const cached = readJSON("ps:stats");
+  if (cached && Date.now() - cached.t < cfg.STATS_REFRESH_MIN * 60000) {
+    STATS = cached.units;
+  } else {
+    try {
+      const r = await fetch(statsBase() + "/stats");
+      if (r.ok) {
+        const d = await r.json();
+        STATS = d.units || {};
+        writeJSON("ps:stats", { t: Date.now(), units: STATS });
+      }
+    } catch { /* offline / backend down — stats just don't show */ }
+  }
+  $("stats-btn").hidden = !STATS;
+}
+
+function unitStat(id) {
+  const s = STATS && STATS[id];
+  if (!s || s.shown < cfg.STATS_MIN_SAMPLE) return null;
+  return { n: s.shown, solve: s.solved / s.shown, clean: s.solved_clean / s.shown };
+}
+
+function reportRound() {
+  if (!cfg.STATS_API || !state.results.length) return;
+  const body = JSON.stringify({
+    mode: state.mode,
+    results: state.results.map((r) => ({
+      unit: r.rec.id,
+      solved: r.solved,
+      clean: r.solved && r.hints === 0 && r.wrong <= 1,
+      wrong: r.wrong,
+      hints: r.hints,
+      gaveUp: !r.solved,
+    })),
+  });
+  const url = statsBase() + "/report";
+  try {
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(url, new Blob([body], { type: "application/json" }));
+    } else {
+      fetch(url, { method: "POST", body, keepalive: true, headers: { "Content-Type": "application/json" } });
+    }
+  } catch { /* ignore */ }
+}
+
+function mockStats() {  // DEV only — plausible numbers so the UI can be seen
+  STATS = {};
+  for (const r of ALL) {
+    if (Math.random() < 0.4) continue;
+    let base = 0.08 + 0.6 * r.distinct + (r.prom - 6) * 0.025 + (Math.random() - 0.5) * 0.15;
+    base = Math.min(0.94, Math.max(0.02, base));
+    const shown = 15 + Math.floor(Math.random() * 400);
+    const solved = Math.round(shown * base);
+    STATS[r.id] = {
+      shown, solved,
+      solved_clean: Math.round(solved * (0.4 + Math.random() * 0.3)),
+      wrong_total: Math.round(shown * 1.4), hints_total: Math.round(shown * 1.1), gave_up: shown - solved,
+    };
+  }
+}
+
+function openStats() {
+  const rows = [];
+  let totalAnswers = 0;
+  for (const r of ALL) {
+    const s = STATS && STATS[r.id];
+    if (!s) continue;
+    totalAnswers += s.shown;
+    if (s.shown >= cfg.STATS_MIN_SAMPLE) rows.push({ r, n: s.shown, rate: s.solved / s.shown });
+  }
+  rows.sort((a, b) => a.rate - b.rate);
+  const list = (arr) => arr.map(({ r, n, rate }) =>
+    `<li><span class="pct">${Math.round(rate * 100)}%</span>
+       <span class="nm">${r.name}<small> · ${r.country}</small></span>
+       <span class="nn">n=${fmt(n)}</span></li>`).join("");
+
+  $("stats-body").innerHTML = rows.length < 3
+    ? `<p style="color:var(--muted)">Not enough plays recorded yet — check back once a few rounds are in.</p>`
+    : `<p style="color:var(--muted);margin-bottom:10px">${fmt(totalAnswers)} answers recorded ·
+         showing units seen ${cfg.STATS_MIN_SAMPLE}+ times</p>
+       <div class="stats-cols">
+         <div><h4>Toughest</h4><ol class="stats-list">${list(rows.slice(0, 20))}</ol></div>
+         <div><h4>Most nailed</h4><ol class="stats-list">${list(rows.slice(-20).reverse())}</ol></div>
+       </div>`;
+  $("stats-modal").hidden = false;
 }
 
 // ─────────────────────────────────────────────────────────── boot
@@ -726,7 +842,9 @@ Promise.all([
   wire();
   setMode("intermediate");
   $("start-btn").disabled = false;
+  $("stats-btn").hidden = true;   // shown by loadStats() once aggregates arrive
   showSetup();
+  loadStats();
 }).catch((err) => {
   $("setup-title").textContent = "Couldn't load the data";
   $("setup-desc").textContent = String(err) + " — is this being served over http:// (not opened as a file)?";
