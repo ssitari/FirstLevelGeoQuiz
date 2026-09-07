@@ -9,8 +9,9 @@ export const APP_TITLE = "Subnational Geography Map Quiz";
 // Restore it (and re-enable GitHub Pages) when the project goes public.
 export const CREDIT_HTML = `
   Boundaries &amp; place names: <a href="https://www.naturalearthdata.com/" rel="noopener" target="_blank">Natural Earth</a>
-  1:10m Admin&nbsp;1 (public domain). Prominence &amp; difficulty are estimated from unit
-  area, largest-city population and capital status.
+  1:10m Admin&nbsp;1 (public domain); Kenya, Nepal, DR&nbsp;Congo &amp; Morocco subdivisions from
+  <a href="https://www.geoboundaries.org/" rel="noopener" target="_blank">geoBoundaries</a> (CC&nbsp;BY&nbsp;3.0&nbsp;IGO).
+  Prominence &amp; difficulty are estimated from unit area, largest-city population and capital status.
 `;
 
 export const DATA_FILE = "./data/admin1.topojson";

@@ -84,17 +84,19 @@ the `prominence()` / `tier_for()` / `distinctiveness()` functions.
 - Source: Natural Earth 1:10m Admin 1 – States, Provinces, **"lakes" variant** —
   its unit boundaries follow lake shorelines (Great Lakes, Caspian, Victoria…)
   instead of running through open water. The plain variant makes lake-bordering
-  units like Wisconsin unrecognizable. ~4,590 features; ~4,480 after
-  sliver/tiny-island filtering.
-- Output is **TopoJSON** (shared arcs + quantization), ~5.3 MB / ~1.8 MB gzipped.
+  units like Wisconsin unrecognizable. ~4,630 units after sliver/tiny-island
+  filtering and the boundary-currency overrides below.
+- **Boundary-currency overrides:** Kenya, Nepal, DR Congo and Morocco have
+  out-of-date subdivisions in Natural Earth, so those four are swapped for
+  [geoBoundaries](https://www.geoboundaries.org/) gbHumanitarian ADM1
+  (CC BY 3.0 IGO). See [`docs/data-currency.md`](docs/data-currency.md) — it's the
+  running checklist for staleness and disputed-territory calls.
+- Output is **TopoJSON** (shared arcs + quantization), ~5.5 MB / ~1.8 MB gzipped.
 - Simplification uses a **per-feature distance threshold** (`≈ SIMPLIFY_K ·
   sqrt(area_km²)` metres), not a percentage. A flat percentage keeps thousands of
   points on a huge province that will never be shown at that detail while gutting
   a small one; the per-feature threshold gives every silhouette the same on-screen
   fidelity. Lower `SIMPLIFY_K` = finer and larger.
-- **Boundary currency:** some Natural Earth admin-1 divisions are out of date
-  (Kenya's abolished provinces, Nepal's abolished zones, …). Tracked in
-  [`docs/data-currency.md`](docs/data-currency.md).
 - Natural Earth's `labelrank` turns out to encode the *country*, not unit fame,
   so it isn't used. Prominence is built from area + largest-city population +
   capital status instead.
@@ -116,8 +118,10 @@ the `prominence()` / `tier_for()` / `distinctiveness()` functions.
 
 ---
 
-Boundaries and place names © [Natural Earth](https://www.naturalearthdata.com/about/terms-of-use/),
-public domain.
+Boundaries and place names from [Natural Earth](https://www.naturalearthdata.com/about/terms-of-use/)
+(public domain); Kenya, Nepal, DR Congo and Morocco first-level boundaries from
+[geoBoundaries](https://www.geoboundaries.org/) (CC BY 3.0 IGO — Runfola et al.
+2020, PLoS ONE 15(4): e0231866).
 
 Built with assistance from Claude (Anthropic).
 

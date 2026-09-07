@@ -36,6 +36,37 @@ SRC_A1 = os.path.join(CACHE, "ne_10m_admin_1_states_provinces_lakes.geojson")
 SRC_A0 = os.path.join(CACHE, "ne_50m_admin_0_countries.geojson")
 SRC_PP = os.path.join(CACHE, "ne_10m_populated_places_simple.geojson")
 
+# Countries where Natural Earth's admin-1 set is out of date. NE's own units for
+# these `adm0_a3`s are dropped; geometry + names come from geoBoundaries
+# (gbHumanitarian ADM1, CC BY 3.0 IGO) in scripts/cache/overrides/. Full
+# provenance in docs/data-currency.md.
+OVERRIDES = {
+    "KEN": {"type": "County",   "note": "47 counties (2010 constitution)"},
+    "COD": {"type": "Province", "note": "26 provinces (2015 découpage)"},
+    "NPL": {"type": "Province", "note": "7 provinces (2015 constitution)",
+            "rename": {
+                "Province 1": ("Koshi", ["Province 1", "Province No. 1"]),
+                "Province 2": ("Madhesh", ["Madhes", "Madhesh Pradesh", "Province 2"]),
+            }},
+    # geoBoundaries gives the 10 regions in undisputed territory; the two Western
+    # Sahara regions are intentionally not attributed to Morocco (NE carries a
+    # separate "Western Sahara" unit). Names de-diacriticked in the source, so
+    # restore the usual forms and keep the plain ones as alternates.
+    "MAR": {"type": "Region", "note": "regions of the 2015 reform, undisputed territory only",
+            "rename": {
+                "Tangier Tetouan Al Hoceima": ("Tanger-Tétouan-Al Hoceïma", ["Tangier-Tetouan-Al Hoceima", "Tangier-Tetouan"]),
+                "Oriental": ("Oriental", []),
+                "Fez Meknes": ("Fès-Meknès", ["Fez-Meknes"]),
+                "Rabat Sale Kenitra": ("Rabat-Salé-Kénitra", ["Rabat-Sale-Kenitra"]),
+                "Beni Mellal Khenifra": ("Béni Mellal-Khénifra", ["Beni Mellal-Khenifra"]),
+                "Casablanca Settat": ("Casablanca-Settat", []),
+                "Marrakech Safi": ("Marrakech-Safi", []),
+                "Draa Tafilalet": ("Drâa-Tafilalet", ["Draa-Tafilalet"]),
+                "Souss Massa": ("Souss-Massa", []),
+                "Guelmim Oued Noun": ("Guelmim-Oued Noun", ["Guelmim-Oued-Noun"]),
+            }},
+}
+
 # Simplify to a per-feature distance threshold ≈ SIMPLIFY_K × (linear size of the
 # unit): sqrt(area_km²) × K metres. A percentage retention instead would gut a
 # small province (28% of few points) while a huge one keeps thousands it will
@@ -323,6 +354,87 @@ def tier_for(prom):
     return "hard"
 
 
+# ---------------------------------------------------------------- assembling units
+
+def ne_alt_names(p, name):
+    alt = set()
+    for v in (p.get("name_alt"), p.get("name_en"), p.get("gn_name"),
+              p.get("woe_name"), p.get("postal"), p.get("abbrev")):
+        if not v:
+            continue
+        for piece in str(v).split("|"):
+            piece = piece.strip()
+            if piece and norm(piece) != norm(name):
+                alt.add(piece)
+    return sorted(alt)
+
+
+def load_overrides():
+    """geoBoundaries replacements, as raw units in the same shape build() consumes
+    from Natural Earth. Returns {a3: [unit, ...]}."""
+    out = {}
+    for a3, spec in OVERRIDES.items():
+        path = os.path.join(CACHE, "overrides", f"{a3}.geojson")
+        if not os.path.exists(path):
+            sys.exit(f"missing override {path} -- run scripts/fetch.py first")
+        rename = spec.get("rename", {})
+        units = []
+        for f in load(path)["features"]:
+            nm = (f["properties"].get("shapeName") or "").strip()
+            if not nm or not f.get("geometry"):
+                continue
+            alt = []
+            if nm in rename:
+                nm, alt = rename[nm][0], list(rename[nm][1])
+            units.append({
+                "id": f"{a3}-o{len(units):02d}", "name": nm, "a3": a3,
+                "alt": alt, "type": spec["type"], "country": None,
+                "lon": None, "lat": None, "geometry": f["geometry"],
+            })
+        out[a3] = units
+    return out
+
+
+def enrich_one(u, countries, places):
+    """u: {id, name, a3, alt[], type, country|None, lon|None, lat|None, geometry}"""
+    a3 = u["a3"]
+    name = u["name"]
+    ctx = countries.get(a3, {})
+    polys = geom_polygons(u["geometry"])
+    if not polys:
+        return None
+    area = abs(sum(ring_area_km2(poly[0]) for poly in polys))
+    bbox = bbox_of(polys)
+    lon, lat = u.get("lon"), u.get("lat")
+    if lon is None or lat is None:
+        lon = (bbox[0] + bbox[2]) / 2
+        lat = (bbox[1] + bbox[3]) / 2
+
+    city = pick_city(name, a3, lon, lat, polys, bbox, places)
+    prom = prominence(area, city, has_capital(name, a3, places), a3)
+    alt = sorted({x.strip() for x in u["alt"] if x and norm(x) != norm(name)})
+    return {
+        "id": u["id"],
+        "name": name,
+        "alt": "|".join(alt),
+        "country": u.get("country") or ctx.get("name") or a3,
+        "a3": a3,
+        "iso2": ctx.get("iso2"),
+        "cont": ctx.get("cont") or "—",
+        "subr": ctx.get("subr") or "—",
+        "type": u["type"],
+        "prom": prom,
+        "distinct": distinctiveness(polys, area),
+        "tier": tier_for(prom),
+        "lon": round(lon, 3),
+        "lat": round(lat, 3),
+        "area": round(area),
+        "cityName": city["name"] if city else "",
+        "cityPop": city["pop"] if city else 0,
+        "cityIn": bool(city and city["in_unit"]),
+    }
+
+
 # ---------------------------------------------------------------- main
 
 def main():
@@ -332,67 +444,40 @@ def main():
 
     countries = country_lookup()
     places = places_by_country()
-    src = load(SRC_A1)
+    overrides = load_overrides()
 
-    # ---- enrich: compute area / city / prominence / tier / names on the
-    #      FULL-resolution geometry; hand the geometry to mapshaper untouched.
-    enriched = {"type": "FeatureCollection", "features": []}
-    manifest_rows = []
-    for f in src["features"]:
+    # ---- gather every unit: Natural Earth (minus the overridden countries) plus
+    #      the geoBoundaries replacements, all in one shape.
+    units = []
+    for f in load(SRC_A1)["features"]:
         p = f["properties"]
+        a3 = p.get("adm0_a3")
+        if a3 in overrides:
+            continue
         name = (p.get("name") or "").strip()
         if not name or not f.get("geometry"):
             continue
-        a3 = p.get("adm0_a3")
-        ctx = countries.get(a3, {})
-
-        polys = geom_polygons(f["geometry"])
-        if not polys:
-            continue
-        area = abs(sum(ring_area_km2(poly[0]) for poly in polys))
-        bbox = bbox_of(polys)
-        lon, lat = p.get("longitude"), p.get("latitude")
-        if lon is None or lat is None:
-            lon = (bbox[0] + bbox[2]) / 2
-            lat = (bbox[1] + bbox[3]) / 2
-
-        city = pick_city(name, a3, lon, lat, polys, bbox, places)
-        prom = prominence(area, city, has_capital(name, a3, places), a3)
-        tier = tier_for(prom)
-        distinct = distinctiveness(polys, area)
-
-        alt = set()
-        for v in (p.get("name_alt"), p.get("name_en"), p.get("gn_name"),
-                  p.get("woe_name"), p.get("postal"), p.get("abbrev")):
-            if not v:
-                continue
-            for piece in str(v).split("|"):
-                piece = piece.strip()
-                if piece and norm(piece) != norm(name):
-                    alt.add(piece)
-
-        props = {
+        units.append({
             "id": p.get("adm1_code") or f"{a3}-{name}",
-            "name": name,
-            "alt": "|".join(sorted(alt)),
-            "country": p.get("admin") or ctx.get("name") or a3,
-            "a3": a3,
-            "iso2": ctx.get("iso2"),
-            "cont": ctx.get("cont") or "—",
-            "subr": ctx.get("subr") or "—",
+            "name": name, "a3": a3, "alt": ne_alt_names(p, name),
             "type": p.get("type_en") or p.get("type") or "region",
-            "prom": prom,
-            "distinct": distinct,
-            "tier": tier,
-            "lon": round(lon, 3),
-            "lat": round(lat, 3),
-            "area": round(area),
-            "cityName": city["name"] if city else "",
-            "cityPop": city["pop"] if city else 0,
-            "cityIn": bool(city and city["in_unit"]),
-        }
+            "country": p.get("admin"),
+            "lon": p.get("longitude"), "lat": p.get("latitude"),
+            "geometry": f["geometry"],
+        })
+    for repl in overrides.values():
+        units.extend(repl)
+
+    # ---- enrich: area / city / prominence / distinctiveness / tier, full-res
+    #      geometry kept for mapshaper.
+    enriched = {"type": "FeatureCollection", "features": []}
+    manifest_rows = []
+    for u in units:
+        props = enrich_one(u, countries, places)
+        if props is None:
+            continue
         enriched["features"].append(
-            {"type": "Feature", "properties": props, "geometry": f["geometry"]})
+            {"type": "Feature", "properties": props, "geometry": u["geometry"]})
         manifest_rows.append(props)
 
     enr_path = os.path.join(CACHE, "_enriched.geojson")
@@ -425,7 +510,8 @@ def main():
         tier_counts[r["tier"]] += 1
     manifest = {
         "generated": date.today().isoformat(),
-        "source": "Natural Earth 1:10m Admin 1 (lakes variant), public domain",
+        "source": "Natural Earth 1:10m Admin 1 (lakes variant), public domain; "
+                  + ", ".join(sorted(OVERRIDES)) + " from geoBoundaries (CC BY 3.0 IGO)",
         "total": len(manifest_rows),
         "tiers": dict(tier_counts),
         "countries": sorted(
@@ -437,6 +523,9 @@ def main():
         json.dump(manifest, f, separators=(",", ":"), ensure_ascii=False)
 
     kb = os.path.getsize(out_path) / 1024
+    for a3 in sorted(OVERRIDES):
+        n = sum(1 for r in manifest_rows if r["a3"] == a3)
+        print(f"  override {a3}: {n} units ({OVERRIDES[a3]['note']})")
     print(f"\n  {len(manifest_rows)} units  |  {len(by_country)} countries  |  "
           f"tiers {dict(tier_counts)}")
     print(f"  data/admin1.topojson  {kb:,.0f} KB  (~{kb / 3:,.0f} KB gzipped)")

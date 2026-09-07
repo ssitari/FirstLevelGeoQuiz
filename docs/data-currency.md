@@ -19,31 +19,43 @@ Candidates surfaced by comparing NE's admin-1 count to ISO 3166-2 (see
 truth — it sometimes counts a different level. Confirm each against a primary source before
 patching.
 
-| Country | NE has | Believed current | Change | Source (fill in) | Status |
-|---|---|---|---|---|---|
-| Kenya | 8 provinces | 47 counties | 2010 constitution / 2013 elections | | ☐ verify ☐ patch |
-| Nepal | 14 zones (*anchal*) | 7 provinces | 2015 constitution | | ☐ verify ☐ patch |
-| DR Congo | 11 provinces | 26 provinces | 2006 constitution, implemented 2015 | | ☐ verify ☐ patch |
-| Morocco | 16 regions | 12 regions | 2015 territorial reform | | ☐ verify ☐ patch |
-| Algeria | 48 wilayas | 58 wilayas | 10 added 2019 | | ☐ verify ☐ patch |
-| Uganda | ~112 "counties" | 100+ districts | ongoing district creation | | ☐ verify ☐ decide level |
-| Tanzania | 30 regions | 31 regions | Songwe added 2016 | | ☐ verify ☐ patch |
-| France | 96 metro departments | 13 metro regions | NE models departments, not regions | | ☐ decide which level |
-| Myanmar | 14 (states/regions) | 15 (Naypyidaw Union Territory) | | | ☐ verify |
-| Philippines | mixed set incl. HUCs | 17 regions / 82 provinces | NE's set is inconsistent | | ☐ decide level |
+| Country | NE has | Now using | Change | Status |
+|---|---|---|---|---|
+| Kenya | 8 provinces | **47 counties** | 2010 constitution / 2013 elections | ✅ patched → geoBoundaries |
+| Nepal | 14 zones (*anchal*) | **7 provinces** | 2015 constitution (Province 1→Koshi, 2→Madhesh renamed 2022–23) | ✅ patched → geoBoundaries |
+| DR Congo | 11 provinces | **26 provinces** | 2006 constitution, implemented 2015 | ✅ patched → geoBoundaries |
+| Morocco | 16 regions | **10 regions** | 2015 reform; Western Sahara's 2 regions excluded (see §2) | ✅ patched → geoBoundaries |
+| Algeria | 48 wilayas | 48 wilayas | 10 added 2019 — geoBoundaries still at 48, no clean source yet | ☐ open |
+| Uganda | ~112 "counties" | ~112 | ongoing district creation | ☐ open — decide level |
+| Tanzania | 30 regions | 30 | Songwe added 2016 | ☐ open |
+| France | 96 metro departments | 96 | NE models departments, not regions | ☐ open — decide level |
+| Myanmar | 15 | 15 | ~ok (Naypyidaw included) | ☐ spot-check |
+| Philippines | mixed set incl. HUCs | mixed | NE's set is inconsistent | ☐ open — decide level |
+
+### Sources for the patched four (geoBoundaries gbHumanitarian ADM1, CC BY 3.0 IGO, pinned release `9469f09`)
+
+| ISO | geoBoundaries year | Upstream source |
+|---|---|---|
+| KEN | 2018 | HDX / OCHA COD-AB Kenya |
+| NPL | 2020 | HDX — Survey Department of Nepal |
+| COD | 2019 | HDX / OCHA COD-AB DR Congo |
+| MAR | 2020 | HDX / OCHA COD-AB Morocco |
+
+Cite: Runfola et al. (2020), *geoBoundaries: A global database of political administrative boundaries*, PLoS ONE 15(4): e0231866.
 
 Add rows as they turn up. Anything with `delta_ne_minus_iso` beyond ±50% in the
 CSV deserves a look.
 
-### How a patch is integrated
+### How a patch is integrated (done — this is how it works now)
 
-`build.py` reads `scripts/cache/ne_10m_admin_1_states_provinces_lakes.geojson`.
-Add an override step: for a country in an `OVERRIDES` map, drop NE's features for
-that `adm0_a3` and substitute the replacement GeoJSON (reprojected to WGS84,
-same property shape). Keep each override file under `scripts/overrides/<a3>.geojson`
-with a `SOURCE` note in a sibling `.md`. The rest of the pipeline (city PiP,
-prominence, distinctiveness, simplify) then runs on the substituted geometry
-unchanged.
+`OVERRIDES` at the top of `build.py` maps `adm0_a3` → `{type, note, rename?}`.
+`fetch.py` pulls each country's geoBoundaries ADM1 GeoJSON to
+`scripts/cache/overrides/<A3>.geojson`. In `build.py`, NE's units for an
+overridden country are skipped and the geoBoundaries features are fed through the
+exact same enrich pipeline (city point-in-polygon, prominence, distinctiveness,
+per-feature simplify). `rename` fixes stale or de-diacriticked names and keeps
+the originals as accepted alternates. To add a country: add its ISO3 to
+`GB_ISOS` in `fetch.py` and a row to `OVERRIDES`, re-run both scripts.
 
 ---
 
@@ -59,8 +71,8 @@ side.
 
 | Territory | NE's current treatment | Decision | Notes |
 |---|---|---|---|
+| Western Sahara | separate `SAH` unit "Western Sahara"; 2 Moroccan regions flagged `FCLASS_ISO=Unrecognized` | ✅ resolved | Morocco override = the 10 regions in undisputed territory; WS stays its own single unit, not attributed to Morocco |
 | Crimea, Sevastopol | | ☐ | attributed to which country in the data? |
-| Western Sahara | | ☐ | own polygon / part of Morocco / excluded? |
 | Kashmir (J&K, Ladakh, Gilgit-Baltistan, Aksai Chin) | | ☐ | |
 | West Bank, Gaza | | ☐ | currently one polygon each, unnamed |
 | Taiwan | | ☐ | include its counties? label? |
@@ -69,6 +81,10 @@ side.
 | Northern Cyprus | | ☐ | |
 | Somaliland | | ☐ | |
 | Antarctic claims | | ☐ | currently one "Antarctica" unit — fine to keep or drop |
+
+Note: `FCLASS_ISO` is only populated on those 2 Moroccan regions in the NE admin-1
+layer — it is **not** a general contested-unit flag. The other rows need
+per-country judgement (which `adm0`/`admin` NE assigns them to).
 
 For anything included: does the hint ladder ("Country: X") state something the
 project is comfortable asserting? If not, exclude the unit from the pool (a
@@ -93,4 +109,8 @@ project is comfortable asserting? If not, exclude the unit from the pool (a
 
 ## 4. Done
 
-_(move rows here with the commit hash and source once complete)_
+- **2026-09-07** — Kenya, Nepal, DR Congo, Morocco swapped from stale Natural
+  Earth admin-1 to geoBoundaries gbHumanitarian ADM1 (CC BY 3.0 IGO). Nepal's
+  numbered provinces renamed Koshi / Madhesh. Morocco = the 10 regions in
+  undisputed territory (Western Sahara left as its own unit). Mechanism:
+  `OVERRIDES` in `build.py` + `GB_ISOS` in `fetch.py`.
