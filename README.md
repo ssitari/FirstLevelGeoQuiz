@@ -88,9 +88,13 @@ the `prominence()` / `tier_for()` / `distinctiveness()` functions.
   filtering and the boundary-currency overrides below.
 - **Boundary-currency overrides:** Kenya, Nepal, DR Congo and Morocco have
   out-of-date subdivisions in Natural Earth, so those four are swapped for
-  [geoBoundaries](https://www.geoboundaries.org/) gbHumanitarian ADM1
-  (CC BY 3.0 IGO). See [`docs/data-currency.md`](docs/data-currency.md) — it's the
-  running checklist for staleness and disputed-territory calls.
+  [geoBoundaries](https://www.geoboundaries.org/) gbHumanitarian (CC BY 3.0 IGO).
+- **Palestine** is treated as its own country, with its 16 governorates as the
+  first-level units — a deliberately stronger position than Natural Earth, which
+  maps the area as two Israeli-sovereign polygons. Geometry from geoBoundaries
+  (OCHA oPt COD-AB); Jerusalem governorate is included.
+- See [`docs/data-currency.md`](docs/data-currency.md) — the running checklist for
+  staleness and disputed-territory calls.
 - Output is **TopoJSON** (shared arcs + quantization), ~5.5 MB / ~1.8 MB gzipped.
 - Simplification uses a **per-feature distance threshold** (`≈ SIMPLIFY_K ·
   sqrt(area_km²)` metres), not a percentage. A flat percentage keeps thousands of
@@ -119,9 +123,9 @@ the `prominence()` / `tier_for()` / `distinctiveness()` functions.
 ---
 
 Boundaries and place names from [Natural Earth](https://www.naturalearthdata.com/about/terms-of-use/)
-(public domain); Kenya, Nepal, DR Congo and Morocco first-level boundaries from
-[geoBoundaries](https://www.geoboundaries.org/) (CC BY 3.0 IGO — Runfola et al.
-2020, PLoS ONE 15(4): e0231866).
+(public domain); Kenya, Nepal, DR Congo, Morocco and Palestine first-level
+boundaries from [geoBoundaries](https://www.geoboundaries.org/) (CC BY 3.0 IGO —
+Runfola et al. 2020, PLoS ONE 15(4): e0231866).
 
 Built with assistance from Claude (Anthropic).
 

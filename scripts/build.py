@@ -48,6 +48,23 @@ OVERRIDES = {
                 "Province 1": ("Koshi", ["Province 1", "Province No. 1"]),
                 "Province 2": ("Madhesh", ["Madhes", "Madhesh Pradesh", "Province 2"]),
             }},
+    # State of Palestine promoted to its own country with its 16 governorates as
+    # the first-level units, instead of Natural Earth's two Israeli-sovereign
+    # "West Bank" / "Gaza Strip" polygons. Key is NE's adm0_a3 (PSX, which its
+    # 50m admin-0 already labels "Palestine"); geoBoundaries ships the 16 as ADM2.
+    "PSX": {"iso3": "PSE", "type": "Governorate",
+            "note": "16 governorates (State of Palestine)",
+            "rename": {
+                "Ramallah": ("Ramallah and al-Bireh", ["Ramallah"]),
+                "Khan Younis": ("Khan Yunis", ["Khan Younis"]),
+                "Deir Al-Balah": ("Deir al-Balah", []),
+                "Jericho": ("Jericho", ["Ariha"]),
+                "Jerusalem": ("Jerusalem", ["Al-Quds"]),
+                "Hebron": ("Hebron", ["Al-Khalil"]),
+                "Bethlehem": ("Bethlehem", ["Bayt Lahm"]),
+                "Tulkarm": ("Tulkarm", ["Tulkarem"]),
+                "Qalqilya": ("Qalqilya", ["Qalqiliya"]),
+            }},
     # geoBoundaries gives the 10 regions in undisputed territory; the two Western
     # Sahara regions are intentionally not attributed to Morocco (NE carries a
     # separate "Western Sahara" unit). Names de-diacriticked in the source, so
@@ -374,7 +391,8 @@ def load_overrides():
     from Natural Earth. Returns {a3: [unit, ...]}."""
     out = {}
     for a3, spec in OVERRIDES.items():
-        path = os.path.join(CACHE, "overrides", f"{a3}.geojson")
+        iso3 = spec.get("iso3", a3)
+        path = os.path.join(CACHE, "overrides", f"{iso3}.geojson")
         if not os.path.exists(path):
             sys.exit(f"missing override {path} -- run scripts/fetch.py first")
         rename = spec.get("rename", {})
@@ -511,7 +529,8 @@ def main():
     manifest = {
         "generated": date.today().isoformat(),
         "source": "Natural Earth 1:10m Admin 1 (lakes variant), public domain; "
-                  + ", ".join(sorted(OVERRIDES)) + " from geoBoundaries (CC BY 3.0 IGO)",
+                  + ", ".join(sorted(s.get("iso3", a3) for a3, s in OVERRIDES.items()))
+                  + " from geoBoundaries (CC BY 3.0 IGO)",
         "total": len(manifest_rows),
         "tiers": dict(tier_counts),
         "countries": sorted(

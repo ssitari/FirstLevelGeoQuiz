@@ -25,6 +25,7 @@ patching.
 | Nepal | 14 zones (*anchal*) | **7 provinces** | 2015 constitution (Province 1→Koshi, 2→Madhesh renamed 2022–23) | ✅ patched → geoBoundaries |
 | DR Congo | 11 provinces | **26 provinces** | 2006 constitution, implemented 2015 | ✅ patched → geoBoundaries |
 | Morocco | 16 regions | **10 regions** | 2015 reform; Western Sahara's 2 regions excluded (see §2) | ✅ patched → geoBoundaries |
+| Palestine | NE "West Bank" + "Gaza Strip", sovereignty → Israel | **16 governorates**, country = Palestine | deliberate editorial call, stronger than NE (see §2) | ✅ patched → geoBoundaries |
 | Algeria | 48 wilayas | 48 wilayas | 10 added 2019 — geoBoundaries still at 48, no clean source yet | ☐ open |
 | Uganda | ~112 "counties" | ~112 | ongoing district creation | ☐ open — decide level |
 | Tanzania | 30 regions | 30 | Songwe added 2016 | ☐ open |
@@ -34,12 +35,13 @@ patching.
 
 ### Sources for the patched four (geoBoundaries gbHumanitarian ADM1, CC BY 3.0 IGO, pinned release `9469f09`)
 
-| ISO | geoBoundaries year | Upstream source |
-|---|---|---|
-| KEN | 2018 | HDX / OCHA COD-AB Kenya |
-| NPL | 2020 | HDX — Survey Department of Nepal |
-| COD | 2019 | HDX / OCHA COD-AB DR Congo |
-| MAR | 2020 | HDX / OCHA COD-AB Morocco |
+| ISO | Level used | geoBoundaries year | Upstream source |
+|---|---|---|---|
+| KEN | ADM1 | 2018 | HDX / OCHA COD-AB Kenya |
+| NPL | ADM1 | 2020 | HDX — Survey Department of Nepal |
+| COD | ADM1 | 2019 | HDX / OCHA COD-AB DR Congo |
+| MAR | ADM1 | 2020 | HDX / OCHA COD-AB Morocco |
+| PSE | **ADM2** | 2021 | HDX / OCHA oPt COD-AB (geoBoundaries treats West Bank & Gaza as its ADM1) |
 
 Cite: Runfola et al. (2020), *geoBoundaries: A global database of political administrative boundaries*, PLoS ONE 15(4): e0231866.
 
@@ -72,6 +74,7 @@ side.
 | Territory | NE's current treatment | Decision | Notes |
 |---|---|---|---|
 | Western Sahara | separate `SAH` unit "Western Sahara"; 2 Moroccan regions flagged `FCLASS_ISO=Unrecognized` | ✅ resolved | Morocco override = the 10 regions in undisputed territory; WS stays its own single unit, not attributed to Morocco |
+| Palestine / West Bank / Gaza | NE: two units "West Bank" & "Gaza Strip", `sov_a3 = ISR` | ✅ resolved (deliberate) | Promoted to country "Palestine" (NE's own 50m admin-0 name for `PSX`); first-level = the 16 governorates. This is a stronger position than Natural Earth takes, chosen on purpose. Jerusalem governorate included as one of the 16. |
 | Crimea, Sevastopol | | ☐ | attributed to which country in the data? |
 | Kashmir (J&K, Ladakh, Gilgit-Baltistan, Aksai Chin) | | ☐ | |
 | West Bank, Gaza | | ☐ | currently one polygon each, unnamed |
@@ -113,4 +116,8 @@ project is comfortable asserting? If not, exclude the unit from the pool (a
   Earth admin-1 to geoBoundaries gbHumanitarian ADM1 (CC BY 3.0 IGO). Nepal's
   numbered provinces renamed Koshi / Madhesh. Morocco = the 10 regions in
   undisputed territory (Western Sahara left as its own unit). Mechanism:
-  `OVERRIDES` in `build.py` + `GB_ISOS` in `fetch.py`.
+  `OVERRIDES` in `build.py` + `GB_LAYERS` in `fetch.py`.
+- **2026-09-07** — Palestine promoted to a country (`PSX` → "Palestine"); its 16
+  governorates (geoBoundaries PSE **ADM2**, CC BY 3.0 IGO, OCHA oPt COD-AB 2021)
+  replace NE's two Israeli-sovereign "West Bank" / "Gaza Strip" units. Deliberate,
+  stated in the README. Cross-checks: ISO 3166-2:PS and PCBS both use these 16.

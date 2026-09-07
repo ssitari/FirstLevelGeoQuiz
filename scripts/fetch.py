@@ -23,16 +23,21 @@ NE_FILES = [
     "ne_10m_populated_places_simple.geojson",         # largest-city hint
 ]
 
-# Pinned geoBoundaries release. gbHumanitarian ADM1, served from the LFS media host
-# so we get the file itself and not an LFS pointer.
+# Pinned geoBoundaries release. gbHumanitarian, served from the LFS media host so
+# we get the file itself and not an LFS pointer. Level is per country: Palestine's
+# 16 governorates are ADM2 in geoBoundaries (it treats West Bank / Gaza as ADM1),
+# which is exactly the split this project overrides.
 GB_RELEASE = "9469f09"
-GB_ISOS = ["KEN", "NPL", "COD", "MAR"]
+GB_LAYERS = [
+    ("KEN", "ADM1"), ("COD", "ADM1"), ("NPL", "ADM1"), ("MAR", "ADM1"),
+    ("PSE", "ADM2"),
+]
 
 
-def gb_url(iso):
+def gb_url(iso, level):
     return (f"https://media.githubusercontent.com/media/wmgeolab/geoBoundaries/"
-            f"{GB_RELEASE}/releaseData/gbHumanitarian/{iso}/ADM1/"
-            f"geoBoundaries-{iso}-ADM1.geojson")
+            f"{GB_RELEASE}/releaseData/gbHumanitarian/{iso}/{level}/"
+            f"geoBoundaries-{iso}-{level}.geojson")
 
 
 def get(url, dest, label):
@@ -52,9 +57,9 @@ def main():
 
     ov = os.path.join(CACHE, "overrides")
     os.makedirs(ov, exist_ok=True)
-    for iso in GB_ISOS:
-        get(gb_url(iso), os.path.join(ov, f"{iso}.geojson"),
-            f"geoBoundaries {iso} ADM1")
+    for iso, level in GB_LAYERS:
+        get(gb_url(iso, level), os.path.join(ov, f"{iso}.geojson"),
+            f"geoBoundaries {iso} {level}")
     print("done")
 
 
