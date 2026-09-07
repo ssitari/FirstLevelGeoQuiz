@@ -1,9 +1,11 @@
 // Community-stats backend for First-Level Geo Quiz.
 //
 //   POST /report  { mode, results: [ { unit, solved, clean, wrong, hints, gaveUp } ] }
-//                 -> upserts aggregate counters, one row per unit. Fire-and-forget.
+//                 -> upserts aggregate counters, one row per unit. Sent as a
+//                    keepalive fetch with a text/plain body (a CORS simple
+//                    request); parsed as JSON regardless of Content-Type.
 //   GET  /stats   -> { generated, count, units: { unit_id: {shown, solved, ...} } }
-//                    edge-cached ~10 min so D1 isn't hit on every page load.
+//                    edge-cached 2 min so D1 isn't hit on every page load.
 //
 // Anonymous aggregates only. No identity, no per-game rows, no cookies.
 
@@ -57,7 +59,7 @@ export default {
         };
       }
       const res = json({ generated: Date.now(), count: results.length, units });
-      res.headers.set("Cache-Control", "public, max-age=600");
+      res.headers.set("Cache-Control", "public, max-age=120");   // client also caches ~10 min
       ctx.waitUntil(cache.put(cacheKey, res.clone()));
       return res;
     }

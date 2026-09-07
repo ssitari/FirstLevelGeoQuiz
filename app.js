@@ -732,7 +732,7 @@ const statsBase = () => (cfg.STATS_API || "").replace(/\/+$/, "");
 async function loadStats() {
   if (DEV && location.search.includes("mockstats")) {
     mockStats();
-    $("stats-btn").hidden = false;
+    $("stats-btn").hidden = !hasStatsData();
     return;
   }
   if (!cfg.STATS_API) return;
@@ -749,7 +749,11 @@ async function loadStats() {
       }
     } catch { /* offline / backend down — stats just don't show */ }
   }
-  $("stats-btn").hidden = !STATS;
+  $("stats-btn").hidden = !hasStatsData();
+}
+
+function hasStatsData() {
+  return STATS && Object.values(STATS).some((s) => s.shown >= cfg.STATS_MIN_SAMPLE);
 }
 
 function unitStat(id) {
@@ -771,13 +775,16 @@ function reportRound() {
       gaveUp: !r.solved,
     })),
   });
-  const url = statsBase() + "/report";
+  // keepalive fetch, credentials omitted and text/plain body: a CORS "simple
+  // request", so no preflight and the Worker's wildcard ACAO is accepted.
   try {
-    if (navigator.sendBeacon) {
-      navigator.sendBeacon(url, new Blob([body], { type: "application/json" }));
-    } else {
-      fetch(url, { method: "POST", body, keepalive: true, headers: { "Content-Type": "application/json" } });
-    }
+    fetch(statsBase() + "/report", {
+      method: "POST",
+      body,
+      keepalive: true,
+      credentials: "omit",
+      headers: { "Content-Type": "text/plain" },
+    }).catch(() => {});
   } catch { /* ignore */ }
 }
 
