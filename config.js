@@ -5,11 +5,12 @@
 
 export const APP_TITLE = "Subnational Geography Map Quiz";
 
+// NOTE: repo link intentionally omitted during the private testing phase.
+// Restore it (and re-enable GitHub Pages) when the project goes public.
 export const CREDIT_HTML = `
-  Boundaries & place names: <a href="https://www.naturalearthdata.com/" rel="noopener" target="_blank">Natural Earth</a>
+  Boundaries &amp; place names: <a href="https://www.naturalearthdata.com/" rel="noopener" target="_blank">Natural Earth</a>
   1:10m Admin&nbsp;1 (public domain). Prominence &amp; difficulty are estimated from unit
-  area, largest-city population and capital status. Method notes &amp; source:
-  <a href="https://github.com/ssitari/FirstLevelGeoQuiz" rel="noopener" target="_blank">ssitari/FirstLevelGeoQuiz</a>.
+  area, largest-city population and capital status.
 `;
 
 export const DATA_FILE = "./data/admin1.topojson";
@@ -18,7 +19,7 @@ export const MANIFEST_FILE = "./data/manifest.json";
 // ── Community stats (optional) ──────────────────────────────
 // Base URL of the Cloudflare Worker in worker/. Empty string = fully disabled:
 // no network calls, no "X% of players" line, the 📊 button is hidden.
-export const STATS_API = "";
+export const STATS_API = "https://firstlevelgeoquiz-stats.metaalias.workers.dev";
 // Don't show a per-unit solve rate until this many people have seen it.
 export const STATS_MIN_SAMPLE = 15;
 // Re-fetch the aggregate at most this often (cached in localStorage between).
