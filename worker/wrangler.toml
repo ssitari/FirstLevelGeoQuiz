@@ -5,8 +5,7 @@ name = "firstlevelgeoquiz-stats"
 main = "index.js"
 compatibility_date = "2025-01-01"
 
-# Fill database_id after `wrangler d1 create flgq-stats`
 [[d1_databases]]
 binding = "DB"
 database_name = "flgq-stats"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "510d08ea-343e-4316-bcde-bebdc24eedcb"
