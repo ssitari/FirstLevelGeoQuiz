@@ -1,12 +1,12 @@
-// Engine for First-Level Geo Quiz. Tunables live in config.js.
+// Engine for the Subnational Geography Map Quiz. Tunables live in config.js.
 //
 // Data model (data/admin1.json): one record per first-level admin unit —
 //   { id, name, alt[], country, a3, iso2, cont, subr, type, tier,
 //     lon, lat, area, city:{name,pop,in_unit}, geom:MultiPolygon coords }
 //
 // A "game" is ROUND_LENGTH questions drawn from a pool. The pool depends on
-// mode: one country (novice), the whole world weighted by tier (intermediate),
-// everything uniformly (ironman), or a date-seeded fair subset (daily).
+// mode: one country (novice), the whole world weighted by prominence + shape
+// (hard), everything uniformly (ironman), or a date-seeded fair subset (daily).
 
 import * as cfg from "./config.js";
 
@@ -23,7 +23,7 @@ let MANIFEST = null;
 // ─────────────────────────────────────────────────────────── game state
 
 const state = {
-  mode: "intermediate",
+  mode: "hard",
   pool: [],
   poolLabel: "",
   questions: [],
@@ -198,12 +198,12 @@ function drawQuestions() {
   if (m === "ironman") {
     return shuffle(state.pool.slice()).slice(0, n);
   }
-  // intermediate + daily: sample without repeats, weighted by prominence
+  // hard + daily: sample without repeats, weighted by prominence
   const bag = m === "daily"
     ? state.pool.filter((r) => cfg.DAILY_TIERS.includes(r.tier))
     : state.pool.slice();
   const perCountry = new Map();
-  const base = (r) => Math.pow(Math.max(0.02, r.prom - cfg.INTERMEDIATE_FLOOR), cfg.INTERMEDIATE_EXPONENT);
+  const base = (r) => Math.pow(Math.max(0.02, r.prom - cfg.HARD_FLOOR), cfg.HARD_EXPONENT);
   const distinctFactor = (r) =>
     Math.max(cfg.DISTINCT_WEIGHT_MIN, Math.pow(r.distinct, cfg.DISTINCT_WEIGHT_EXP));
   const weightOf = (r) =>
@@ -302,7 +302,7 @@ function hintText(rung, rec) {
   return "";
 }
 
-function ladder() { return cfg.HINT_LADDER[state.mode] || cfg.HINT_LADDER.intermediate; }
+function ladder() { return cfg.HINT_LADDER[state.mode] || cfg.HINT_LADDER.hard; }
 
 function revealPlayersLine(rec) {
   const st = unitStat(rec.id);
@@ -544,7 +544,7 @@ function endGame() {
   const share = $("share-btn");
   if (share) {
     share.onclick = () => {
-      const txt = `First-Level Geo Quiz — Daily ${todayKey()}\n${marks.join("")}  ${fmt(state.score)} pts\nssitari.github.io/FirstLevelGeoQuiz`;
+      const txt = `${cfg.APP_TITLE} — Daily ${todayKey()}\n${marks.join("")}  ${fmt(state.score)} pts\n${location.host}${location.pathname}`;
       navigator.clipboard?.writeText(txt).then(
         () => { share.textContent = "Copied!"; },
         () => { share.textContent = "Copy failed"; },
@@ -606,7 +606,7 @@ function showSetup() {
 
   const desc = {
     novice: "Pick a country. You'll be shown its states / provinces / regions one at a time to identify — hints stay local (unit type, size, largest city).",
-    intermediate: "First-level units from anywhere in the world, weighted toward the ones you've plausibly heard of. Misses reveal continent, then country, then a city.",
+    hard: "First-level units from anywhere in the world, weighted toward the ones that are both prominent and distinctively shaped. Misses reveal continent, then country, then a city.",
     ironman: "Uniformly random across every first-level unit on Earth — 4,000-plus of them, most of which you have never heard of. Hints and streaks still apply. Bragging rights only.",
     daily: "Five fixed puzzles, the same for everyone, drawn from the more recognizable units. One attempt per day; share your grid.",
   }[mode];
@@ -654,9 +654,9 @@ function showDailyDone(key, done) {
       <button class="ghost" id="share-btn">Share result</button>
       <button class="ghost" id="menu-btn">Other modes</button>
     </div>`;
-  $("menu-btn").onclick = () => { setMode("intermediate"); showSetup(); };
+  $("menu-btn").onclick = () => { setMode("hard"); showSetup(); };
   $("share-btn").onclick = () => {
-    const txt = `First-Level Geo Quiz — Daily ${key}\n${done.marks.join("")}  ${fmt(done.score)} pts\nssitari.github.io/FirstLevelGeoQuiz`;
+    const txt = `${cfg.APP_TITLE} — Daily ${key}\n${done.marks.join("")}  ${fmt(done.score)} pts\n${location.host}${location.pathname}`;
     navigator.clipboard?.writeText(txt).then(() => { $("share-btn").textContent = "Copied!"; });
   };
 }
@@ -664,7 +664,7 @@ function showDailyDone(key, done) {
 // ─────────────────────────────────────────────────────────── misc helpers
 
 function labelForMode(m) {
-  return { novice: "Novice", intermediate: "Intermediate", ironman: "Ironman", daily: "Daily" }[m];
+  return { novice: "Novice", hard: "Hard", ironman: "Ironman", daily: "Daily" }[m];
 }
 function updateHud() {
   $("hud-score").textContent = fmt(state.score);
@@ -840,7 +840,7 @@ Promise.all([
   document.getElementById("credit").innerHTML = cfg.CREDIT_HTML
     + ` &nbsp;·&nbsp; ${fmt(ALL.length)} units · ${MANIFEST.countries.length} countries · data ${manifest.generated}`;
   wire();
-  setMode("intermediate");
+  setMode("hard");
   $("start-btn").disabled = false;
   $("stats-btn").hidden = true;   // shown by loadStats() once aggregates arrive
   showSetup();
