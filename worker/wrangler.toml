@@ -1,7 +1,7 @@
 # Cloudflare Worker for the community stats backend.
 # Deploy: see worker/README.md
 
-name = "flgq-stats"
+name = "firstlevelgeoquiz-stats"
 main = "index.js"
 compatibility_date = "2025-01-01"
 

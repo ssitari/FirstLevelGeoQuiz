@@ -9,28 +9,23 @@ stats (no reads, no writes, the 📊 button hides).
 
 ## Deploy
 
+This is a **separate** Worker from the site (the site is deployed straight from the
+repo). Testers never see this URL — the page calls it in the background.
+
 ```bash
-npm install -g wrangler      # or use `npx wrangler ...` below
-
 cd worker
-wrangler login               # browser OAuth
+npx wrangler login                  # browser OAuth
 
-wrangler d1 create flgq-stats
+npx wrangler d1 create flgq-stats
 #   -> prints a database_id; paste it into wrangler.toml
 
-wrangler d1 execute flgq-stats --remote --file=schema.sql
-wrangler deploy
-#   -> prints the Worker URL, e.g. https://flgq-stats.<you>.workers.dev
+npx wrangler d1 execute flgq-stats --remote --file=schema.sql
+npx wrangler deploy
+#   -> deploys as https://firstlevelgeoquiz-stats.<your-subdomain>.workers.dev
 ```
 
-Then set it in the site config:
-
-```js
-// config.js
-export const STATS_API = "https://flgq-stats.<you>.workers.dev";
-```
-
-Commit that and redeploy the site.
+Then set that URL as `STATS_API` in `config.js`, commit, push — the site redeploys
+and stats turn on.
 
 ## Endpoints
 
