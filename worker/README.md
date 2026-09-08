@@ -30,10 +30,14 @@ and stats turn on.
 ## Endpoints
 
 - `POST /report` — body `{ mode, results: [ { unit, solved, clean, wrong, hints, gaveUp } ] }`.
-  Called once per finished round via `navigator.sendBeacon`. Validates ranges,
-  dedupes units within a payload, batches the upserts.
+  Called once per finished round via a `keepalive` fetch with a `text/plain` body
+  — a CORS "simple request", so there's no preflight and the wildcard ACAO is
+  accepted. Validates ranges, dedupes units within a payload, batches the upserts.
+  The page skips the call entirely for anyone sending Global Privacy Control or
+  Do Not Track, or who has switched reporting off in the footer.
 - `GET /stats` — the whole table as `{ generated, count, units: { id: {...} } }`.
-  Edge-cached 10 minutes; the site also caches it in `localStorage`.
+  Edge-cached 2 minutes (`STATS_REFRESH_MIN` in `config.js` caches it ~10 minutes
+  in the visitor's `localStorage` on top of that).
 
 ## Notes
 
