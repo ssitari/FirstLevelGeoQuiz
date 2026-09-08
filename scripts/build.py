@@ -84,6 +84,50 @@ OVERRIDES = {
             }},
 }
 
+# Countries where Natural Earth ships a level *below* the country's real first
+# level — NE's UK is 232 districts and boroughs, its Italy is 110 provinces. Each
+# is dissolved on one of NE's own grouping fields, so no outside data and no
+# hand-keyed names: the field value becomes the unit name verbatim.
+#
+# Judgement calls, flagged as such in docs/data-currency.md: LVA and MLT roll up
+# to historical/statistical regions rather than an administrative level (neither
+# country has a meaningful admin-1), and PHL rolls up to the 17 administrative
+# regions because NE's provinces-plus-cities set is internally inconsistent.
+ROLLUPS = {
+    "GBR": {"field": "geonunit", "type": "Country",
+            "note": "England / Scotland / Wales / Northern Ireland"},
+    "FRA": {"field": "region", "type": "Region",
+            "note": "18 régions; NE models the 101 departments"},
+    "ITA": {"field": "region", "type": "Region",
+            "note": "20 regions; NE models the 110 provinces"},
+    "PHL": {"field": "region", "type": "Region",
+            "note": "17 administrative regions; NE mixes provinces with cities"},
+    "SVN": {"field": "region", "type": "Statistical Region",
+            "note": "12 statistical regions; NE models 181 municipalities"},
+    "LVA": {"field": "region", "type": "Region",
+            "note": "5 historical regions; NE models 119 municipalities"},
+    "MLT": {"field": "region", "type": "Region",
+            "note": "3 regions; NE models 68 local councils"},
+    "UGA": {"field": "region", "type": "Region",
+            "note": "4 regions; NE models 112 districts/counties"},
+}
+
+# Units the quiz will not ask, because the hint ladder would have to state a
+# sovereignty the project is not willing to assert. This is the conservative
+# default written down in docs/data-currency.md §2: where a unit cannot be
+# attributed cleanly under the UN/ISO view, drop it rather than pick a side.
+# They stay in the data — the reveal map still draws them as neighbours — they
+# are just never the answer. Keyed (adm0_a3, NE name); the build fails if one
+# stops matching, so a Natural Earth rename can't silently re-enable it.
+EXCLUDE_UNITS = {
+    ("RUS", "Crimea"),              # NE attributes to Russia; UN/ISO: Ukraine
+    ("RUS", "Sevastopol"),          # ditto
+    ("IND", "Jammu and Kashmir"),   # no clean UN/ISO attribution
+    ("IND", "Ladakh"),              # ditto
+    ("PAK", "Azad Kashmir"),        # ditto
+    ("PAK", "Northern Areas"),      # Gilgit-Baltistan, ditto
+}
+
 # Simplify to a per-feature distance threshold ≈ SIMPLIFY_K × (linear size of the
 # unit): sqrt(area_km²) × K metres. A percentage retention instead would gut a
 # small province (28% of few points) while a huge one keeps thousands it will
@@ -176,9 +220,14 @@ def convex_hull(points):
     return lower[:-1] + upper[:-1]
 
 
-def straight_fraction(ring, lat0):
+def straight_fraction(ring, lat0, run_min):
     """Share of a ring's perimeter that sits in long, near-straight runs — the
-    signature of a surveyed / colonial border that tells you nothing."""
+    signature of a surveyed / colonial border that tells you nothing.
+
+    `run_min` (km) is where a straight run stops being a bend and starts being a
+    ruled line. It scales with the unit: a fixed threshold meant a small district
+    could never register a "long" straight edge, which quietly told the score
+    that every small unit was interesting."""
     if len(ring) < 4:
         return 1.0
     pk = [_xy_km(p, lat0) for p in ring]
@@ -198,17 +247,26 @@ def straight_fraction(ring, lat0):
         if turn < 10:
             run += seg
         else:
-            if run > 35:
+            if run > run_min:
                 straight += run
             run = 0.0
-    if run > 35:
+    if run > run_min:
         straight += run
     return straight / total if total else 1.0
 
 
-def distinctiveness(polys, area):
-    """0 (a featureless blob or straight-edged rectangle) .. 1 (a shape with
-    peninsulas, islands, a crinkly coast — something you could pick out)."""
+def distinctiveness_raw(polys, area):
+    """How much identifying information the outline carries, as a raw score.
+
+    Two things matter about how this is measured. It runs on the *simplified*
+    geometry the player is actually shown, not the full-resolution source — the
+    old version scored source vertex density, which is why 2,000 km² capital
+    districts (Moskva, Tokyo, Hovedstaden) came out at 1.00. And every term is
+    either a ratio or expressed relative to the unit's own linear size, so units
+    three orders of magnitude apart in area are judged on the same footing.
+
+    The absolute value means nothing on its own; percentile_ranks() turns the
+    population into the 0..1 the draw weight in config.js assumes."""
     if not polys or area <= 0:
         return 0.0
     exteriors = [poly[0] for poly in polys]
@@ -216,12 +274,17 @@ def distinctiveness(polys, area):
     main = exteriors[0]
     lat0 = sum(p[1] for p in main) / len(main)
 
+    size_km = math.sqrt(area)                          # the unit's own linear scale
+    interval_km = max(0.15, size_km * SIMPLIFY_K / 1000.0)   # what simplify left it
+
     verts = sum(len(r) for r in exteriors)
     perim = sum(ring_perimeter_km(r, lat0) for r in exteriors) or 1.0
-    detail = verts / perim * 100.0                     # vertices per 100 km of edge
-    detail_score = min(1.0, math.log1p(detail) / math.log1p(12))
+    # vertices per simplification interval of edge: ~1 means the outline resisted
+    # simplification the whole way round (a crinkly coast), low means long smooth
+    # or ruled runs. Scale-free, unlike vertices per 100 km.
+    detail_score = min(1.0, verts * interval_km / perim)
 
-    straight = straight_fraction(main, lat0)
+    straight = straight_fraction(main, lat0, max(2.0, 0.12 * size_km))
 
     hull = convex_hull([p for r in exteriors for p in r])
     hull_area = abs(ring_area_km2(list(hull) + [hull[0]])) if len(hull) >= 3 else area
@@ -230,12 +293,35 @@ def distinctiveness(polys, area):
     big = [r for r in exteriors if abs(ring_area_km2(r)) >= 0.02 * area]
     part_bonus = min(len(big) - 1, 3) / 3.0
 
-    d = (0.42 * detail_score
-         + 0.30 * (1.0 - straight)
-         + 0.20 * min(1.0, concavity * 2.5)
-         + 0.08 * part_bonus)
-    # raw d clusters in 0.35-0.95; stretch so it spans 0..1 across the population
-    return round(max(0.0, min(1.0, (d - 0.35) / 0.55)), 3)
+    return (0.42 * detail_score
+            + 0.30 * (1.0 - straight)
+            + 0.20 * min(1.0, concavity * 2.5)
+            + 0.08 * part_bonus)
+
+
+def percentile_ranks(values):
+    """Raw scores -> their rank in the population, 0..1, ties sharing a rank.
+
+    The raw score clusters: the old fixed (d - 0.35) / 0.55 stretch left the
+    shipped `distinct` with a median of 0.85 and 18% of units pinned above 0.95,
+    so DISTINCT_WEIGHT_EXP was being applied to what was very nearly a constant
+    and the draw weighting did almost nothing. Ranking makes the spread uniform
+    by construction, which is the distribution config.js is written against."""
+    n = len(values)
+    if n < 2:
+        return [0.5] * n
+    order = sorted(range(n), key=lambda i: values[i])
+    out = [0.0] * n
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and values[order[j + 1]] == values[order[i]]:
+            j += 1
+        r = (i + j) / 2.0 / (n - 1)
+        for k in range(i, j + 1):
+            out[order[k]] = round(r, 3)
+        i = j + 1
+    return out
 
 
 def bbox_of(polys):
@@ -355,7 +441,13 @@ def prominence(area, city, is_capital, a3):
     area_score = min(2.2, math.sqrt(max(area, 0)) / 500.0)   # 250k km²->1.0, 1M->2.0
     prom = 0.5 + 1.5 * pop_score + 1.1 * area_score
     if is_capital:
-        prom += 5.5
+        # Holding the national capital does make a unit talked about. But a
+        # capital *district* is a city with a border drawn round it, and a flat
+        # +5.5 on a scale whose 99th percentile was 11.1 put those districts at
+        # the top of the distribution outright — the Daily was drawing five of
+        # them at a time. Ramp the bonus in with size so it rewards "the province
+        # containing the capital" rather than "the city".
+        prom += 2.0 * min(1.0, math.sqrt(area / 50000.0))
     if a3 in _KNOWN_COUNTRIES:
         prom *= 1.35
     if area < 2000:      # Maltese councils, London boroughs, Andorran parishes…
@@ -413,6 +505,41 @@ def load_overrides():
     return out
 
 
+def load_rollups(ne_features):
+    """NE's own units for a ROLLUPS country, dissolved up a level by one of NE's
+    grouping fields. Returns {a3: [unit, ...]} in the shape build() consumes."""
+    out = {}
+    rdir = os.path.join(CACHE, "rollups")
+    os.makedirs(rdir, exist_ok=True)
+    for a3, spec in ROLLUPS.items():
+        field = spec["field"]
+        subset = [f for f in ne_features if f["properties"].get("adm0_a3") == a3]
+        if not subset:
+            sys.exit(f"rollup {a3}: no Natural Earth units matched")
+        missing = [f for f in subset if not f["properties"].get(field)]
+        if missing:
+            sys.exit(f"rollup {a3}: {len(missing)} units have no '{field}' value")
+        src = os.path.join(rdir, f"{a3}_src.geojson")
+        dst = os.path.join(rdir, f"{a3}.geojson")
+        with open(src, "w", encoding="utf-8") as fh:
+            json.dump({"type": "FeatureCollection", "features": subset}, fh)
+        mapshaper(src, dst, "-dissolve", field)
+
+        admin = subset[0]["properties"].get("admin")
+        units = []
+        for f in load(dst)["features"]:
+            nm = (f["properties"].get(field) or "").strip()
+            if not nm or not f.get("geometry"):
+                continue
+            units.append({
+                "id": f"{a3}-r{len(units):02d}", "name": nm, "a3": a3,
+                "alt": [], "type": spec["type"], "country": admin,
+                "lon": None, "lat": None, "geometry": f["geometry"],
+            })
+        out[a3] = units
+    return out
+
+
 def enrich_one(u, countries, places):
     """u: {id, name, a3, alt[], type, country|None, lon|None, lat|None, geometry}"""
     a3 = u["a3"]
@@ -442,7 +569,7 @@ def enrich_one(u, countries, places):
         "subr": ctx.get("subr") or "—",
         "type": u["type"],
         "prom": prom,
-        "distinct": distinctiveness(polys, area),
+        # "distinct" is added after simplification — see main()
         "tier": tier_for(prom),
         "lon": round(lon, 3),
         "lat": round(lat, 3),
@@ -451,6 +578,31 @@ def enrich_one(u, countries, places):
         "cityPop": city["pop"] if city else 0,
         "cityIn": bool(city and city["in_unit"]),
     }
+
+
+# ---------------------------------------------------------------- mapshaper
+
+def mapshaper(src, dst, *ops):
+    fmt = "topojson" if dst.endswith(".topojson") else "geojson"
+    out = ["-o", dst, f"format={fmt}"]
+    if fmt == "topojson":
+        out += [f"quantization={QUANTIZATION}", "id-field=id"]
+    cmd = ["npx", "--yes", "mapshaper", src, *ops, *out]
+    print("  mapshaper:", " ".join(cmd[3:]))
+    subprocess.run(cmd, check=True, shell=(os.name == "nt"))
+
+
+def build_land():
+    """A dissolved, heavily simplified world coastline for the reveal's globe
+    inset — tens of KB, out of the same NE 50m admin-0 layer already cached."""
+    out_path = os.path.join(DATA, "land.topojson")
+    mapshaper(
+        SRC_A0, out_path,
+        "-dissolve",
+        "-simplify", "4%", "keep-shapes",
+        "-filter-islands", "min-area=3000km2", "remove-empty",
+    )
+    return out_path
 
 
 # ---------------------------------------------------------------- main
@@ -463,14 +615,16 @@ def main():
     countries = country_lookup()
     places = places_by_country()
     overrides = load_overrides()
+    ne_features = load(SRC_A1)["features"]
+    rollups = load_rollups(ne_features)
 
     # ---- gather every unit: Natural Earth (minus the overridden countries) plus
     #      the geoBoundaries replacements, all in one shape.
     units = []
-    for f in load(SRC_A1)["features"]:
+    for f in ne_features:
         p = f["properties"]
         a3 = p.get("adm0_a3")
-        if a3 in overrides:
+        if a3 in overrides or a3 in rollups:
             continue
         name = (p.get("name") or "").strip()
         if not name or not f.get("geometry"):
@@ -484,6 +638,8 @@ def main():
             "geometry": f["geometry"],
         })
     for repl in overrides.values():
+        units.extend(repl)
+    for repl in rollups.values():
         units.extend(repl)
 
     # ---- enrich: area / city / prominence / distinctiveness / tier, full-res
@@ -502,26 +658,71 @@ def main():
     with open(enr_path, "w", encoding="utf-8") as f:
         json.dump(enriched, f)
 
-    # ---- mapshaper: simplify, drop slivers / tiny islands, TopoJSON encode
-    out_path = os.path.join(DATA, "admin1.topojson")
     os.makedirs(DATA, exist_ok=True)
-    cmd = [
-        "npx", "--yes", "mapshaper", enr_path,
+    out_path = os.path.join(DATA, "admin1.topojson")
+    simp_path = os.path.join(CACHE, "_simplified.geojson")
+
+    # ---- pass 1: simplify, drop slivers / tiny islands. Out as GeoJSON so the
+    #      shape score can be taken from the geometry the player is really shown.
+    mapshaper(
+        enr_path, simp_path,
         "-simplify", "variable",
         f"interval=Math.max(150,Math.sqrt(area)*{SIMPLIFY_K})", "keep-shapes",
         "-filter-islands", "min-vertices=6", "remove-empty",
         "-clean",
-        "-o", out_path, "format=topojson", f"quantization={QUANTIZATION}", "id-field=id",
-    ]
-    print("  mapshaper:", " ".join(cmd[4:]))
-    subprocess.run(cmd, check=True, shell=(os.name == "nt"))
+    )
+
+    # ---- shape distinctiveness, on the simplified outlines, percentile-ranked
+    simp = load(simp_path)
+    raws = [distinctiveness_raw(geom_polygons(f["geometry"]),
+                                f["properties"].get("area") or 0)
+            for f in simp["features"]]
+    for f, d in zip(simp["features"], percentile_ranks(raws)):
+        f["properties"]["distinct"] = d
+
+    # ---- playable: may this unit be the answer to a question?
+    # Two reasons it may not. A country with a single admin-1 unit isn't
+    # subdivided at all — the "unit" is the country outline, which is a different
+    # game — and that set is where the non-subdivisions live (Antarctica, Baykonur,
+    # Clipperton, the sovereign base areas) along with the entities whose status is
+    # contested (Somaliland, Northern Cyprus, Western Sahara, Siachen Glacier).
+    # The other reason is an explicit EXCLUDE_UNITS entry. Unplayable units stay in
+    # the data and are still drawn on the reveal map as neighbours.
+    per_country = Counter(f["properties"]["a3"] for f in simp["features"])
+    hit = Counter()
+    for f in simp["features"]:
+        pr = f["properties"]
+        key = (pr["a3"], pr["name"])
+        if key in EXCLUDE_UNITS:
+            hit[key] += 1
+        pr["playable"] = bool(per_country[pr["a3"]] >= 2 and key not in EXCLUDE_UNITS)
+    stale = [k for k in EXCLUDE_UNITS if not hit[k]]
+    if stale:
+        sys.exit("EXCLUDE_UNITS no longer matches Natural Earth: "
+                 + ", ".join(f"{a}/{n}" for a, n in sorted(stale)))
+
+    with open(simp_path, "w", encoding="utf-8") as f:
+        json.dump(simp, f)
+
+    # ---- pass 2: TopoJSON encode (shared arcs + quantization), no resimplify
+    mapshaper(simp_path, out_path)
+
+    # ---- globe inset coastline
+    land_path = build_land()
+
+    # The manifest has to describe what actually shipped: mapshaper's
+    # filter-islands / remove-empty drop units, and counting before that left two
+    # countries (Ashmore and Cartier, Coral Sea Islands) advertised in the Novice
+    # picker with a unit each and none in the data — an instantly-empty round.
+    manifest_rows = [f["properties"] for f in simp["features"]]
 
     # ---- manifest for the menus
-    by_country = defaultdict(lambda: {"n": 0})
+    by_country = defaultdict(lambda: {"n": 0, "np": 0})
     tier_counts = Counter()
     for r in manifest_rows:
         c = by_country[r["a3"]]
         c["n"] += 1
+        c["np"] += 1 if r.get("playable") else 0     # what Novice can actually ask
         c["name"] = r["country"]
         c["cont"] = r["cont"]
         c["type"] = r["type"]
@@ -532,6 +733,7 @@ def main():
                   + ", ".join(sorted(s.get("iso3", a3) for a3, s in OVERRIDES.items()))
                   + " from geoBoundaries (CC BY 3.0 IGO)",
         "total": len(manifest_rows),
+        "playable": sum(1 for r in manifest_rows if r.get("playable")),
         "tiers": dict(tier_counts),
         "countries": sorted(
             ({"a3": a3, **v} for a3, v in by_country.items()),
@@ -541,13 +743,21 @@ def main():
     with open(os.path.join(DATA, "manifest.json"), "w", encoding="utf-8") as f:
         json.dump(manifest, f, separators=(",", ":"), ensure_ascii=False)
 
+    land_kb = os.path.getsize(land_path) / 1024
     kb = os.path.getsize(out_path) / 1024
     for a3 in sorted(OVERRIDES):
         n = sum(1 for r in manifest_rows if r["a3"] == a3)
         print(f"  override {a3}: {n} units ({OVERRIDES[a3]['note']})")
+    for a3 in sorted(ROLLUPS):
+        n = sum(1 for r in manifest_rows if r["a3"] == a3)
+        print(f"  rollup   {a3}: {n} units ({ROLLUPS[a3]['note']})")
+    n_play = sum(1 for r in manifest_rows if r.get("playable"))
     print(f"\n  {len(manifest_rows)} units  |  {len(by_country)} countries  |  "
           f"tiers {dict(tier_counts)}")
+    print(f"  {n_play} playable  |  {len(manifest_rows) - n_play} held out "
+          f"(single-unit countries + {len(EXCLUDE_UNITS)} contested)")
     print(f"  data/admin1.topojson  {kb:,.0f} KB  (~{kb / 3:,.0f} KB gzipped)")
+    print(f"  data/land.topojson    {land_kb:,.0f} KB")
 
 
 if __name__ == "__main__":
