@@ -35,6 +35,7 @@ DATA = os.path.join(HERE, "..", "data")
 SRC_A1 = os.path.join(CACHE, "ne_10m_admin_1_states_provinces_lakes.geojson")
 SRC_A0 = os.path.join(CACHE, "ne_50m_admin_0_countries.geojson")
 SRC_PP = os.path.join(CACHE, "ne_10m_populated_places_simple.geojson")
+SRC_GEO = os.path.join(CACHE, "ne_10m_geography_regions_polys.geojson")
 
 # Countries where Natural Earth's admin-1 set is out of date. NE's own units for
 # these `adm0_a3`s are dropped; geometry + names come from geoBoundaries
@@ -127,6 +128,24 @@ EXCLUDE_UNITS = {
     ("PAK", "Azad Kashmir"),        # ditto
     ("PAK", "Northern Areas"),      # Gilgit-Baltistan, ditto
 }
+
+# Natural Earth's country layer carries one CONTINENT per *country*, so every
+# Russian unit came out "Europe" -- Kamchatka included, and continent is the first
+# hint a Hard or Daily player is shown. NE also ships seven actual continent
+# polygons (FEATURECLA = "Continent") that follow the physical divides: the Urals,
+# the Caucasus, Suez. Point-in-polygon against those gives a per-unit answer.
+#
+# Those outlines are coarse near the divides and overlap slightly, though. Trusting
+# them naively put southern Gaza in Africa and left Israel's Negev inside two
+# continents at once. So an override only stands where the unit's point falls in
+# exactly one continent and at least CONTINENT_GUARD_KM inside it. That is not a
+# geographic claim -- it is how far a 1:10m outline is worth trusting. In practice
+# it takes the unambiguous cases (Siberia sits 100-2000 km inside Asia, French
+# Guiana 129 km inside South America) and declines to adjudicate the arguable ones
+# (Istanbul, the Azerbaijani Caspian coast, Gaza, Melilla), which keep the
+# country's value.
+CONTINENT_GUARD_KM = 25
+NO_CONTINENT = "—"
 
 # Simplify to a per-feature distance threshold ≈ SIMPLIFY_K × (linear size of the
 # unit): sqrt(area_km²) × K metres. A percentage retention instead would gut a
@@ -388,6 +407,77 @@ def point_in_rings(x, y, rings):
     return inside
 
 
+def continent_parts():
+    """NE's seven continent polygons, split into parts with a bbox for quick reject."""
+    parts = []
+    for f in load(SRC_GEO)["features"]:
+        p = f["properties"]
+        if p.get("FEATURECLA") != "Continent":
+            continue
+        name = p.get("REGION") or p.get("NAME")
+        g = f.get("geometry") or {}
+        polys = g["coordinates"] if g.get("type") == "MultiPolygon" else [g.get("coordinates")]
+        for poly in polys:
+            if not poly:
+                continue
+            xs = [q[0] for q in poly[0]]
+            ys = [q[1] for q in poly[0]]
+            parts.append((name, (min(xs), min(ys), max(xs), max(ys)), poly))
+    if not parts:
+        sys.exit(f"no Continent features in {SRC_GEO} -- run scripts/fetch.py")
+    return parts
+
+
+def _edge_dist_km(lon, lat, rings):
+    """Shortest distance from a point to a polygon's edges, in km."""
+    k = math.cos(math.radians(lat))
+    px = lon * k
+    best = float("inf")
+    for ring in rings:
+        for i in range(len(ring) - 1):
+            ax, ay = ring[i][0] * k, ring[i][1]
+            bx, by = ring[i + 1][0] * k, ring[i + 1][1]
+            dx, dy = bx - ax, by - ay
+            L = dx * dx + dy * dy
+            t = 0.0 if L == 0 else max(0.0, min(1.0, ((px - ax) * dx + (lat - ay) * dy) / L))
+            d = math.hypot(px - (ax + t * dx), lat - (ay + t * dy))
+            if d < best:
+                best = d
+    return best * 111.32
+
+
+def _bbox_dist(lon, lat, box):
+    x0, y0, x1, y1 = box
+    return math.hypot(max(x0 - lon, 0.0, lon - x1), max(y0 - lat, 0.0, lat - y1))
+
+
+def nearest_continent(lon, lat, parts):
+    """For a point on no continent polygon at all -- a mid-ocean island nation.
+    NE labels those countries "Seven seas (open ocean)", which is not a hint."""
+    near = sorted(parts, key=lambda pr: _bbox_dist(lon, lat, pr[1]))[:6]
+    return min(near, key=lambda pr: _edge_dist_km(lon, lat, pr[2]))[0]
+
+
+def resolve_continent(lon, lat, country_cont, parts):
+    """(continent, override_or_None). See CONTINENT_GUARD_KM above."""
+    usable = country_cont and country_cont not in (NO_CONTINENT, "Seven seas (open ocean)")
+    hits = [(nm, poly) for nm, box, poly in parts
+            if box[0] <= lon <= box[2] and box[1] <= lat <= box[3]
+            and point_in_rings(lon, lat, poly)]
+    if len(hits) == 1:
+        nm, poly = hits[0]
+        if nm == country_cont:
+            return nm, None
+        # only worth the distance computation when an override is on the table
+        inside = _edge_dist_km(lon, lat, poly)
+        if not usable or inside >= CONTINENT_GUARD_KM:
+            return nm, (country_cont, nm, inside)
+        return country_cont, None
+    if usable:
+        return country_cont, None
+    return nearest_continent(lon, lat, parts), (country_cont, None, 0.0)
+
+
 def pick_city(name, a3, lon, lat, polys, bbox, places):
     pool = places.get(a3, [])
     if not pool:
@@ -540,7 +630,7 @@ def load_rollups(ne_features):
     return out
 
 
-def enrich_one(u, countries, places):
+def enrich_one(u, countries, places, parts, log):
     """u: {id, name, a3, alt[], type, country|None, lon|None, lat|None, geometry}"""
     a3 = u["a3"]
     name = u["name"]
@@ -555,6 +645,10 @@ def enrich_one(u, countries, places):
         lon = (bbox[0] + bbox[2]) / 2
         lat = (bbox[1] + bbox[3]) / 2
 
+    cont, override = resolve_continent(lon, lat, ctx.get("cont"), parts)
+    if override:
+        log.append((u.get("country") or ctx.get("name") or a3, name, override))
+
     city = pick_city(name, a3, lon, lat, polys, bbox, places)
     prom = prominence(area, city, has_capital(name, a3, places), a3)
     alt = sorted({x.strip() for x in u["alt"] if x and norm(x) != norm(name)})
@@ -565,8 +659,8 @@ def enrich_one(u, countries, places):
         "country": u.get("country") or ctx.get("name") or a3,
         "a3": a3,
         "iso2": ctx.get("iso2"),
-        "cont": ctx.get("cont") or "—",
-        "subr": ctx.get("subr") or "—",
+        "cont": cont or NO_CONTINENT,
+        "subr": ctx.get("subr") or NO_CONTINENT,   # still per-country; see README
         "type": u["type"],
         "prom": prom,
         # "distinct" is added after simplification — see main()
@@ -608,7 +702,7 @@ def build_land():
 # ---------------------------------------------------------------- main
 
 def main():
-    for p in (SRC_A1, SRC_A0, SRC_PP):
+    for p in (SRC_A1, SRC_A0, SRC_PP, SRC_GEO):
         if not os.path.exists(p):
             sys.exit(f"missing {p} -- run scripts/fetch.py first")
 
@@ -617,6 +711,8 @@ def main():
     overrides = load_overrides()
     ne_features = load(SRC_A1)["features"]
     rollups = load_rollups(ne_features)
+    parts = continent_parts()
+    cont_log = []
 
     # ---- gather every unit: Natural Earth (minus the overridden countries) plus
     #      the geoBoundaries replacements, all in one shape.
@@ -647,7 +743,7 @@ def main():
     enriched = {"type": "FeatureCollection", "features": []}
     manifest_rows = []
     for u in units:
-        props = enrich_one(u, countries, places)
+        props = enrich_one(u, countries, places, parts, cont_log)
         if props is None:
             continue
         enriched["features"].append(
@@ -748,6 +844,21 @@ def main():
     for a3 in sorted(OVERRIDES):
         n = sum(1 for r in manifest_rows if r["a3"] == a3)
         print(f"  override {a3}: {n} units ({OVERRIDES[a3]['note']})")
+    if cont_log:
+        moved = [r for r in cont_log if r[2][0] and r[2][1]]
+        rescued = [r for r in cont_log if not (r[2][0] and r[2][1])]
+        print(f"\n  continent: {len(moved)} units moved off their country's value, "
+              f"{len(rescued)} island units given a real continent "
+              f"(guard {CONTINENT_GUARD_KM} km)")
+        by = defaultdict(list)
+        for ctry, nm, (old, new, km) in moved:
+            by[(ctry, old, new)].append((km, nm))
+        for (ctry, old, new), items in sorted(by.items(), key=lambda kv: -len(kv[1])):
+            items.sort(reverse=True)
+            shown = ", ".join(n for _, n in items[:4])
+            more = f" +{len(items) - 4} more" if len(items) > 4 else ""
+            print(f"    {ctry}: {old} -> {new} ({len(items)}) -- {shown}{more}")
+
     for a3 in sorted(ROLLUPS):
         n = sum(1 for r in manifest_rows if r["a3"] == a3)
         print(f"  rollup   {a3}: {n} units ({ROLLUPS[a3]['note']})")

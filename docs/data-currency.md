@@ -178,3 +178,17 @@ project is comfortable asserting? If not, exclude the unit from the pool (a
 - **2026-09-07** — `playable` flag added (§2). Crimea, Sevastopol and the four
   Kashmir units held out explicitly; every single-unit "country" held out
   structurally. 43 units held out, all still drawn as map context.
+- **2026-09-08** — Continent resolved per unit against Natural Earth's seven
+  continent polygons instead of inherited from the country. 30 units moved (26
+  Russian to Asia, Edirne + Kırklareli to Europe, West Kazakhstan to Europe,
+  French Guiana to South America); 89 island units in "Seven seas (open ocean)"
+  countries given a real continent.
+  A 25 km guard keeps the build from adjudicating the contested or simply coarse
+  cases. Worth recording *why*: naive point-in-polygon put Khan Yunis and Rafah in
+  **Africa** (1 and 7 km the wrong side of NE's Sinai line) and returned Israel's
+  HaDarom as being in Africa *and* Asia simultaneously. Those, plus Melilla,
+  Istanbul and the Azerbaijani Caspian districts, all now keep the country value.
+  This is the same principle as §2: where the source cannot attribute cleanly,
+  decline rather than assert. ☐ The Asia/Oceania line is untouched — NE's
+  continent polygons exclude the Indonesian and New Guinea islands entirely, so
+  Papua and Maluku still read "Asia".
