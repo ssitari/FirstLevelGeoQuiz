@@ -21,6 +21,7 @@ NE_FILES = [
     "ne_10m_admin_1_states_provinces_lakes.geojson",  # the silhouettes (lake-clipped)
     "ne_50m_admin_0_countries.geojson",               # country -> continent / subregion
     "ne_10m_populated_places_simple.geojson",         # largest-city hint
+    "ne_10m_geography_regions_polys.geojson",         # continent polygons (per-unit continent)
 ]
 
 # Pinned geoBoundaries release. gbHumanitarian, served from the LFS media host so
