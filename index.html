@@ -14,7 +14,7 @@
       --bg: #edecea;
       --card: #ffffff;
       --ink: #23282e;
-      --muted: #7c7a74;
+      --muted: #67655f;
       --line: #dcdad4;
       --accent: #c8542b;
       --good: #2f7d4f;
@@ -165,6 +165,17 @@
 
     /* ── Reveal ── */
     #reveal { margin-top: 14px; }
+    #reveal-maps {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 12px;
+    }
+    #locator { flex: 1 1 0; min-width: 0; }
+    #globe { flex: 0 0 168px; width: 168px; height: auto; display: block; }
+    @media (max-width: 520px) {
+      #reveal-maps { flex-direction: column; gap: 4px; }
+      #globe { flex: 0 0 auto; width: 58%; }
+    }
     #reveal-info {
       background: var(--card); border: 1px solid var(--line);
       border-radius: 12px; padding: 16px; margin: 12px 0;
@@ -196,6 +207,13 @@
       font-size: 11px; line-height: 1.5; color: var(--muted);
     }
     #credit a { color: #56534d; }
+    #credit .consent { margin-top: 8px; }
+    #credit .consent button {
+      font: inherit; font-size: 11px; padding: 1px 7px; margin-left: 4px;
+      border: 1px solid var(--line); border-radius: 999px;
+      background: #fafafa; color: var(--muted); cursor: pointer;
+    }
+    #credit .consent button:hover { border-color: #bbb; color: var(--ink); }
 
     #help, #stats-modal {
       position: fixed; inset: 0; background: rgba(0,0,0,.35);
@@ -238,11 +256,11 @@
 <body>
   <header id="bar">
     <h1>Subnational Geography Map Quiz</h1>
-    <nav id="modes">
-      <button data-mode="novice">Novice</button>
-      <button data-mode="hard">Hard</button>
-      <button data-mode="ironman">Ironman</button>
-      <button data-mode="daily">Daily</button>
+    <nav id="modes" aria-label="Game mode">
+      <button type="button" data-mode="novice" aria-pressed="false">Novice</button>
+      <button type="button" data-mode="hard" aria-pressed="false">Hard</button>
+      <button type="button" data-mode="ironman" aria-pressed="false">Ironman</button>
+      <button type="button" data-mode="daily" aria-pressed="false">Daily</button>
     </nav>
     <div id="hud">
       <span>Score <b id="hud-score">0</b></span>
@@ -272,19 +290,24 @@
         <div id="wrongs"></div>
         <div id="ac-wrap">
           <input id="guess" type="text" autocomplete="off" autocapitalize="off"
-                 spellcheck="false" placeholder="Name the highlighted unit…">
-          <ul id="ac"></ul>
+                 spellcheck="false" placeholder="Name the highlighted unit…"
+                 role="combobox" aria-autocomplete="list" aria-expanded="false"
+                 aria-controls="ac" aria-label="Your guess">
+          <ul id="ac" role="listbox" aria-label="Matching units"></ul>
         </div>
         <div id="guess-actions">
           <button type="submit" class="primary">Guess</button>
           <button type="button" id="hint-btn" class="ghost">Hint</button>
           <button type="button" id="giveup-btn" class="ghost">Give up</button>
         </div>
-        <div id="msg"></div>
+        <div id="msg" role="status" aria-live="polite"></div>
       </form>
 
       <div id="reveal" hidden>
-        <svg id="locator" viewBox="0 0 480 340" aria-label="answer location"></svg>
+        <div id="reveal-maps">
+          <svg id="locator" viewBox="0 0 480 340" aria-label="the answer among its neighbouring units"></svg>
+          <svg id="globe" viewBox="0 0 200 200" aria-label="where on Earth the answer is"></svg>
+        </div>
         <div id="reveal-info"></div>
         <button id="next-btn" class="primary">Next</button>
       </div>
@@ -295,9 +318,9 @@
 
   <footer id="credit"></footer>
 
-  <div id="help" hidden>
+  <div id="help" hidden role="dialog" aria-modal="true" aria-labelledby="help-title">
     <div class="box">
-      <h3>How to play</h3>
+      <h3 id="help-title">How to play</h3>
       <p>A first-level administrative unit — a state, province, region, prefecture,
          oblast — is shown in silhouette, north up. Name it.</p>
       <ul>
@@ -312,9 +335,9 @@
     </div>
   </div>
 
-  <div id="stats-modal" hidden>
+  <div id="stats-modal" hidden role="dialog" aria-modal="true" aria-labelledby="stats-title">
     <div class="box">
-      <h3>Community stats</h3>
+      <h3 id="stats-title">Community stats</h3>
       <div id="stats-body"></div>
       <button class="ghost" id="stats-close">Close</button>
     </div>

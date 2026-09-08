@@ -1,8 +1,10 @@
 // Engine for the Subnational Geography Map Quiz. Tunables live in config.js.
 //
-// Data model (data/admin1.json): one record per first-level admin unit —
-//   { id, name, alt[], country, a3, iso2, cont, subr, type, tier,
-//     lon, lat, area, city:{name,pop,in_unit}, geom:MultiPolygon coords }
+// Data model (data/admin1.topojson): one record per first-level admin unit —
+//   { id, name, alt[], country, a3, iso2, cont, subr, type, tier, prom, distinct,
+//     playable, lon, lat, area, city:{name,pop,in_unit}, geom:MultiPolygon coords }
+// `playable` is false for units the build holds out (single-unit countries and
+// contested attributions) — they render as map context but are never the answer.
 //
 // A "game" is ROUND_LENGTH questions drawn from a pool. The pool depends on
 // mode: one country (novice), the whole world weighted by prominence + shape
@@ -16,9 +18,12 @@ const DEV = /^(localhost|127\.|0\.0\.0\.0)/.test(location.hostname) || location.
 
 // ─────────────────────────────────────────────────────────── data + indexes
 
-let ALL = [];                 // every unit
-let BY_A3 = new Map();        // a3 -> unit[]
+let ALL = [];                 // every unit, including ones never used as an answer
+let PLAYABLE = [];            // the subset a question may be drawn from
+let BY_A3 = new Map();        // a3 -> unit[] (all of them — the reveal map wants
+                              //   the unplayable neighbours drawn too)
 let MANIFEST = null;
+let LAND = null;              // dissolved world coastline for the globe inset
 
 // ─────────────────────────────────────────────────────────── game state
 
@@ -113,6 +118,10 @@ function toRecord(f) {
     prom: +p.prom || 0,
     distinct: p.distinct == null ? 0.6 : +p.distinct,
     tier: p.tier || "hard",
+    // false for a country with a single admin-1 unit (the "unit" is the country)
+    // and for units the build holds out as contested — see EXCLUDE_UNITS in
+    // scripts/build.py. They still render as neighbours, they're just never asked.
+    playable: p.playable !== false,
     lon: +p.lon, lat: +p.lat, area: +p.area || 0,
     city: p.cityName ? { name: p.cityName, pop: +p.cityPop || 0, in_unit: !!p.cityIn } : null,
     geom: fixWinding(f.geometry),
@@ -179,11 +188,11 @@ function buildPool() {
   const m = state.mode;
   if (m === "novice") {
     const a3 = $("country-select").value;
-    state.pool = (BY_A3.get(a3) || []).slice();
+    state.pool = (BY_A3.get(a3) || []).filter((r) => r.playable);
     state.poolLabel = MANIFEST.countries.find((c) => c.a3 === a3)?.name || a3;
     return;
   }
-  state.pool = ALL.slice();
+  state.pool = PLAYABLE.slice();
   state.poolLabel = "the world";
 }
 
@@ -277,6 +286,54 @@ function drawLocator(rec) {
   svg.appendChild(t);
 }
 
+// An orthographic globe centred on the answer. The locator above it shows the
+// unit among its neighbours, which says nothing at all when a country has one
+// unit (the Vatican's "locator" was the same silhouette again) and never says
+// where on Earth you were. The surrounding coastline does.
+function drawGlobe(rec) {
+  const svg = $("globe");
+  svg.innerHTML = "";
+  if (!LAND) { svg.hidden = true; return; }   // land file missing — skip quietly
+  svg.hidden = false;
+
+  const [w, h] = svg.getAttribute("viewBox").split(" ").slice(2).map(Number);
+  const proj = d3.geoOrthographic()
+    .rotate([-rec.lon, -rec.lat])
+    .fitExtent([[3, 3], [w - 3, h - 3]], { type: "Sphere" });
+  const path = d3.geoPath(proj);
+
+  const add = (d, fill, stroke, width) => {
+    if (!d) return;
+    const el = document.createElementNS(svgNS, "path");
+    el.setAttribute("d", d);
+    el.setAttribute("fill", fill || "none");
+    if (stroke) {
+      el.setAttribute("stroke", stroke);
+      el.setAttribute("stroke-width", width);
+      el.setAttribute("stroke-linejoin", "round");
+    }
+    svg.appendChild(el);
+  };
+
+  add(path({ type: "Sphere" }), cfg.GLOBE.ocean);
+  add(path(d3.geoGraticule10()), null, cfg.GLOBE.graticule, "0.5");
+  add(path(LAND), cfg.GLOBE.land, cfg.GLOBE.landStroke, "0.4");
+  add(path(geoOf(rec)), cfg.GLOBE.marker);
+
+  // most units are sub-pixel at this scale, so ring the spot as well
+  const [cx, cy] = proj([rec.lon, rec.lat]);
+  const ring = document.createElementNS(svgNS, "circle");
+  ring.setAttribute("cx", cx);
+  ring.setAttribute("cy", cy);
+  ring.setAttribute("r", 9);
+  ring.setAttribute("fill", "none");
+  ring.setAttribute("stroke", cfg.GLOBE.marker);
+  ring.setAttribute("stroke-width", "1.4");
+  svg.appendChild(ring);
+
+  add(path({ type: "Sphere" }), null, cfg.GLOBE.landStroke, "0.8");   // rim
+}
+
 // ─────────────────────────────────────────────────────────── hints
 
 function hintText(rung, rec) {
@@ -353,10 +410,11 @@ function renderHints() {
 // ─────────────────────────────────────────────────────────── scoring
 
 function penaltyFraction(c) {
+  // A miss is charged once. The ladder rung it reveals is free — charging for
+  // both is what put the round on the floor by the second guess.
   let pen = c.wrong.length * cfg.WRONG_PENALTY;
   for (const rung of c.revealed) {
-    pen += cfg.HINT_PENALTY[rung] || 0;
-    if (c.voluntary && c.voluntary[rung]) pen += (cfg.HINT_PENALTY[rung] || 0) * 0.5;
+    if (c.voluntary && c.voluntary[rung]) pen += cfg.HINT_PENALTY[rung] || 0;
   }
   return pen;
 }
@@ -377,12 +435,22 @@ function scoreQuestion(c, solved) {
   // optional: pay a little more for a featureless outline, a little less for an
   // unmistakable one. Off by default (cfg.DISTINCT_SCORING === 0).
   const distMult = 1 + cfg.DISTINCT_SCORING * (0.5 - c.rec.distinct) * 2;
-  const raw = base * (frac + timeFraction(c)) * distMult;
+  const raw = base * frac * (1 + timeFraction(c)) * distMult;
   return Math.round(raw * state.streakMult);
 }
 
+// "You basically knew it": no hint you went and bought, and at most
+// CLEAN_MAX_WRONG misses. Counting auto-revealed hints here (what the old test
+// did) made the allowance dead code — every miss reveals a rung, so a solve with
+// one miss could never satisfy `revealed.size === 0`.
+function isClean(c, solved) {
+  return !!solved
+    && Object.keys(c.voluntary || {}).length === 0
+    && c.wrong.length <= cfg.CLEAN_MAX_WRONG;
+}
+
 function updateStreak(c, solved) {
-  const clean = solved && c.revealed.size === 0 && c.wrong.length <= 1;
+  const clean = isClean(c, solved);
   state.streakMult = clean
     ? Math.min(cfg.STREAK.cap, +(state.streakMult + cfg.STREAK.step).toFixed(2))
     : 1.0;
@@ -468,7 +536,9 @@ function finishQuestion(solved) {
   state.score += points;
   state.results.push({
     rec: c.rec, solved,
+    clean: isClean(c, solved),
     hints: c.revealed.size,
+    bought: Object.keys(c.voluntary || {}).length,
     wrong: c.wrong.length,
     points,
   });
@@ -476,6 +546,7 @@ function finishQuestion(solved) {
   $("guess-form").hidden = true;
   $("guess").disabled = true;
   drawLocator(c.rec);
+  drawGlobe(c.rec);
 
   const { rank, n } = areaRankWithin(c.rec);
   // show an English exonym only when it's genuinely a different, plain-ASCII name
@@ -500,6 +571,7 @@ function finishQuestion(solved) {
 
   $("next-btn").textContent = state.qi + 1 >= state.questions.length ? "See results" : "Next";
   $("reveal").hidden = false;
+  $("next-btn").focus();     // so Enter carries on; the input is disabled by now
   updateHud();
 }
 
@@ -509,13 +581,13 @@ function endGame() {
   sum.hidden = false;
 
   const solved = state.results.filter((r) => r.solved).length;
-  const clean = state.results.filter((r) => r.solved && r.hints === 0 && r.wrong <= 1).length;
+  const clean = state.results.filter((r) => r.clean).length;
   const bestKey = `ps:best:${state.mode}`;
   const prevBest = readJSON(bestKey) || 0;
   const isBest = state.score > prevBest;
   if (isBest) writeJSON(bestKey, state.score);
 
-  const marks = state.results.map((r) => (!r.solved ? "🟥" : r.hints ? "🟨" : "🟩"));
+  const marks = state.results.map((r) => (!r.solved ? "🟥" : r.clean ? "🟩" : "🟨"));
 
   if (state.mode === "daily") {
     writeJSON(`ps:daily:${todayKey()}`, { score: state.score, marks, solved });
@@ -530,7 +602,7 @@ function endGame() {
       ${solved}/${state.results.length} correct · ${clean} clean${isBest ? " · <b style='color:var(--good)'>new best!</b>" : ` · best ${fmt(Math.max(prevBest, state.score))}`}
     </div>
     <ol>${state.results.map((r) => `
-      <li><span class="mk">${!r.solved ? "🟥" : r.hints ? "🟨" : "🟩"}</span>
+      <li><span class="mk">${!r.solved ? "🟥" : r.clean ? "🟩" : "🟨"}</span>
         <span class="nm">${r.rec.name}<small style="color:var(--muted)"> · ${r.rec.country}</small></span>
         <span class="pt">${r.points ? "+" + fmt(r.points) : "—"}</span></li>`).join("")}</ol>
     <div id="summary-actions">
@@ -584,14 +656,24 @@ function renderAc(q) {
   state.acHi = -1;
   if (!list.length) return closeAc();
   ac.innerHTML = list.map((e, i) =>
-    `<li data-i="${i}" data-name="${e.label.replace(/"/g, "&quot;")}">${e.label}
+    `<li role="option" id="ac-opt-${i}" aria-selected="false"
+        data-i="${i}" data-name="${e.label.replace(/"/g, "&quot;")}">${e.label}
       <small>&nbsp;— ${e.rec.type} · ${e.rec.country}</small></li>`).join("");
   ac._list = list;
+  $("guess").setAttribute("aria-expanded", "true");
   [...ac.children].forEach((li) => {
     li.onmousedown = (ev) => { ev.preventDefault(); pick(li.dataset.name); };
   });
 }
-function closeAc() { const ac = $("ac"); ac.innerHTML = ""; ac._list = null; state.acHi = -1; }
+function closeAc() {
+  const ac = $("ac");
+  ac.innerHTML = "";
+  ac._list = null;
+  state.acHi = -1;
+  const g = $("guess");
+  g.setAttribute("aria-expanded", "false");
+  g.removeAttribute("aria-activedescendant");
+}
 function pick(name) { $("guess").value = name; closeAc(); submitGuess(name); }
 
 // ─────────────────────────────────────────────────────────── setup screen
@@ -614,14 +696,16 @@ function showSetup() {
   $("setup-desc").textContent = desc;
 
   if (mode === "novice") {
+    const playableCount = (c) => (c.np == null ? c.n : c.np);
     const opts = MANIFEST.countries
-      .slice()
+      .filter((c) => playableCount(c) >= cfg.MIN_NOVICE_UNITS)
       .sort((a, b) => a.name.localeCompare(b.name))
-      .map((c) => `<option value="${c.a3}">${c.name} — ${c.n}</option>`).join("");
+      .map((c) => `<option value="${c.a3}">${c.name} — ${playableCount(c)}</option>`).join("");
     ctrls.innerHTML = `<label for="country-select">Country (unit count)</label>
       <select id="country-select">${opts}</select>`;
     const sel = $("country-select");
     sel.value = readJSON("ps:lastCountry") || "USA";
+    if (!sel.value) sel.value = "USA";   // saved pick may no longer be listed
     sel.onchange = () => writeJSON("ps:lastCountry", sel.value);
   }
 
@@ -674,7 +758,11 @@ function updateHud() {
     : "—";
 }
 function setMode(m) {
-  [...document.querySelectorAll("#modes button")].forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
+  [...document.querySelectorAll("#modes button")].forEach((b) => {
+    const on = b.dataset.mode === m;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+  });
 }
 function todayKey() {
   const d = new Date();
@@ -711,17 +799,48 @@ function wire() {
     else submitGuess(g.value);
   });
 
-  $("help-btn").onclick = () => { $("help").hidden = false; };
-  $("help-close").onclick = () => { $("help").hidden = true; };
-  $("help").onclick = (e) => { if (e.target.id === "help") $("help").hidden = true; };
+  wireDialog("help", "help-btn", "help-close");
+  wireDialog("stats-modal", "stats-btn", "stats-close", openStats);
 
-  $("stats-btn").onclick = openStats;
-  $("stats-close").onclick = () => { $("stats-modal").hidden = true; };
-  $("stats-modal").onclick = (e) => { if (e.target.id === "stats-modal") $("stats-modal").hidden = true; };
+  // Escape closes whichever dialog is open
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    for (const id of ["help", "stats-modal"]) {
+      if (!$(id).hidden) { closeDialog(id); e.preventDefault(); return; }
+    }
+  });
+}
+
+let dialogReturn = null;   // what had focus before a dialog opened
+
+function openDialog(id) {
+  dialogReturn = document.activeElement;
+  $(id).hidden = false;
+  const first = $(id).querySelector("button, [href], input, select, textarea");
+  if (first) first.focus();
+}
+
+function closeDialog(id) {
+  $(id).hidden = true;
+  if (dialogReturn && dialogReturn.focus) dialogReturn.focus();
+  dialogReturn = null;
+}
+
+function wireDialog(id, openBtn, closeBtn, before) {
+  $(openBtn).onclick = () => { if (before) before(); openDialog(id); };
+  $(closeBtn).onclick = () => closeDialog(id);
+  $(id).onclick = (e) => { if (e.target.id === id) closeDialog(id); };
 }
 function hlAc() {
   const ac = $("ac");
-  [...ac.children].forEach((li, i) => li.classList.toggle("hl", i === state.acHi));
+  [...ac.children].forEach((li, i) => {
+    const on = i === state.acHi;
+    li.classList.toggle("hl", on);
+    li.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  const g = $("guess");
+  if (state.acHi >= 0) g.setAttribute("aria-activedescendant", `ac-opt-${state.acHi}`);
+  else g.removeAttribute("aria-activedescendant");
 }
 
 // ─────────────────────────────────────────────────────────── community stats
@@ -762,8 +881,50 @@ function unitStat(id) {
   return { n: s.shown, solve: s.solved / s.shown, clean: s.solved_clean / s.shown };
 }
 
+// Reporting is off for anyone whose browser asks for it to be (Global Privacy
+// Control / Do Not Track) and for anyone who has switched it off in the footer.
+function statsBlockedByBrowser() {
+  return navigator.globalPrivacyControl === true
+    || navigator.doNotTrack === "1"
+    || window.doNotTrack === "1";
+}
+
+function statsAllowed() {
+  if (!cfg.STATS_API || statsBlockedByBrowser()) return false;
+  return readJSON("ps:statsOptOut") !== true;
+}
+
+function renderCredit() {
+  const el = $("credit");
+  el.innerHTML = cfg.CREDIT_HTML
+    + ` &nbsp;·&nbsp; ${fmt(PLAYABLE.length)} units · ${MANIFEST.countries.length} countries`
+    + ` · data ${MANIFEST.generated}`;
+  if (!cfg.STATS_API) return;
+
+  const box = document.createElement("div");
+  box.className = "consent";
+  if (statsBlockedByBrowser()) {
+    box.innerHTML = "Community stats reporting is off — your browser sends Do&nbsp;Not&nbsp;Track "
+      + "or Global&nbsp;Privacy&nbsp;Control, so nothing is sent when a round ends.";
+    el.appendChild(box);
+    return;
+  }
+  const on = statsAllowed();
+  box.innerHTML = on
+    ? "When a round ends this page sends anonymous per-unit outcomes — which unit, solved or not, "
+      + "hints used — so the community stats can be built. No identity, no account, no record of "
+      + "your game."
+    : "Community stats reporting is off. Nothing is sent when a round ends.";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.textContent = on ? "Turn off" : "Turn on";
+  btn.onclick = () => { writeJSON("ps:statsOptOut", on); renderCredit(); };
+  box.appendChild(btn);
+  el.appendChild(box);
+}
+
 function reportRound() {
-  if (!cfg.STATS_API || !state.results.length) return;
+  if (!statsAllowed() || !state.results.length) return;
   const body = JSON.stringify({
     mode: state.mode,
     results: state.results.map((r) => ({
@@ -827,7 +988,6 @@ function openStats() {
          <div><h4>Toughest</h4><ol class="stats-list">${list(rows.slice(0, 20))}</ol></div>
          <div><h4>Most nailed</h4><ol class="stats-list">${list(rows.slice(-20).reverse())}</ol></div>
        </div>`;
-  $("stats-modal").hidden = false;
 }
 
 // ─────────────────────────────────────────────────────────── boot
@@ -835,17 +995,22 @@ function openStats() {
 Promise.all([
   d3.json(cfg.DATA_FILE),
   d3.json(cfg.MANIFEST_FILE),
-]).then(([topo, manifest]) => {
+  d3.json(cfg.LAND_FILE).catch(() => null),   // optional: only the globe needs it
+]).then(([topo, manifest, landTopo]) => {
   const obj = topo.objects[Object.keys(topo.objects)[0]];
   ALL = topojson.feature(topo, obj).features.map(toRecord).filter((r) => r.name && r.geom);
+  PLAYABLE = ALL.filter((r) => r.playable);
   MANIFEST = manifest;
+  if (landTopo) {
+    const lo = landTopo.objects[Object.keys(landTopo.objects)[0]];
+    LAND = fixWinding(topojson.merge(landTopo, lo.geometries));
+  }
   document.title = cfg.APP_TITLE;
   for (const r of ALL) {
     if (!BY_A3.has(r.a3)) BY_A3.set(r.a3, []);
     BY_A3.get(r.a3).push(r);
   }
-  document.getElementById("credit").innerHTML = cfg.CREDIT_HTML
-    + ` &nbsp;·&nbsp; ${fmt(ALL.length)} units · ${MANIFEST.countries.length} countries · data ${manifest.generated}`;
+  renderCredit();
   wire();
   setMode("hard");
   $("start-btn").disabled = false;
