@@ -16,10 +16,16 @@ the site itself — plain HTML, CSS, and ES-module JavaScript.
 
 ## Live demo
 
-Not public yet — GitHub Pages is off for the private testing phase, so
-`https://ssitari.github.io/FirstLevelGeoQuiz/` currently 404s. Enable Pages
-(Settings → Pages → Source: main / root) and restore the repo link in
-`CREDIT_HTML` when it goes public.
+**<https://firstlevelgeoquiz.metaalias.workers.dev>**
+
+Unlike the other static projects in this collection, this one is **not** on
+GitHub Pages. It is served by a Cloudflare Worker (`firstlevelgeoquiz`) with
+static assets, connected to this repo through Cloudflare Workers Builds: every
+push to `main` triggers a build, and a successful build deploys. A failed build
+does not deploy, so the previous version stays up.
+
+There is a second, entirely separate Worker for the community stats backend —
+see [`worker/`](worker/). The two share nothing but a naming prefix.
 
 ---
 

@@ -5,13 +5,12 @@
 
 export const APP_TITLE = "Subnational Geography Map Quiz";
 
-// NOTE: repo link intentionally omitted during the private testing phase.
-// Restore it (and re-enable GitHub Pages) when the project goes public.
 export const CREDIT_HTML = `
   Boundaries &amp; place names: <a href="https://www.naturalearthdata.com/" rel="noopener" target="_blank">Natural Earth</a>
   1:10m Admin&nbsp;1 (public domain); Kenya, Nepal, DR&nbsp;Congo, Morocco &amp; Palestine subdivisions from
   <a href="https://www.geoboundaries.org/" rel="noopener" target="_blank">geoBoundaries</a> (CC&nbsp;BY&nbsp;3.0&nbsp;IGO).
   Prominence &amp; difficulty are estimated from unit area, largest-city population and capital status.
+  <a href="https://github.com/ssitari/FirstLevelGeoQuiz" rel="noopener" target="_blank">Source on GitHub</a>.
 `;
 
 export const DATA_FILE = "./data/admin1.topojson";
