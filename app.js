@@ -689,7 +689,7 @@ function showSetup() {
   const desc = {
     novice: "Pick a country. You'll be shown its states / provinces / regions one at a time to identify — hints stay local (unit type, size, largest city).",
     hard: "First-level units from anywhere in the world, weighted toward the ones that are both prominent and distinctively shaped. Misses reveal continent, then country, then a city.",
-    ironman: "Uniformly random across every first-level unit on Earth — 4,000-plus of them, most of which you have never heard of. Hints and streaks still apply. Bragging rights only.",
+    ironman: "Uniformly random across every playable first-level unit on Earth — 3,600-plus of them, most of which you have never heard of. No weighting toward the famous or the distinctively shaped. Hints and streaks still apply. Bragging rights only.",
     daily: "Five fixed puzzles, the same for everyone, drawn from the more recognizable units. One attempt per day; share your grid.",
   }[mode];
   $("setup-title").textContent = labelForMode(mode);
@@ -748,7 +748,9 @@ function showDailyDone(key, done) {
 // ─────────────────────────────────────────────────────────── misc helpers
 
 function labelForMode(m) {
-  return { novice: "Novice", hard: "Hard", ironman: "Ironman", daily: "Daily" }[m];
+  // Display labels only. The mode *keys* never change: localStorage bests
+  // (ps:best:ironman) and the stats backend's mode field depend on them.
+  return { novice: "Novice", hard: "Hard", ironman: "Masochist!", daily: "Daily" }[m];
 }
 function updateHud() {
   $("hud-score").textContent = fmt(state.score);

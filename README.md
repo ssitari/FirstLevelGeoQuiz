@@ -35,15 +35,16 @@ see [`worker/`](worker/). The two share nothing but a naming prefix.
 |---|---|---|
 | **Novice** | one country you pick (of the 199 with at least `MIN_NOVICE_UNITS` units) | unit type + size, largest city, first/last letter |
 | **Hard** | the whole world, weighted toward units that are prominent *and* distinctively shaped | continent → country → city |
-| **Ironman** | uniform random over all 3,611 playable units | continent → country → city |
+| **Masochist!** | uniform random over all 3,611 playable units | continent → country → city |
 | **Daily** | five fixed puzzles, same for everyone, from the recognizable set | continent → country → city |
 
 Hard weights each question by a **prominence score** (`prom`) — area +
 largest-city population + capital status + country — *and* a **distinctiveness
 score** (`distinct`, 0..1) measuring how much identifying information the outline
 actually carries. The obscure long tail and the featureless-rectangle set are
-both suppressed by weight, not a hard cut. Ironman ignores both — that's the
-point of it.
+both suppressed by weight, not a hard cut. Masochist! ignores both — that's the
+point of it. (The mode key in `config.js` is still `ironman`; only the label
+changed, so saved best scores and recorded stats carry over.)
 
 The capital-status term is deliberately small and scales with the unit's area. A
 flat bonus made capital *districts* — city boundaries, a couple of thousand km²
@@ -165,17 +166,40 @@ describe what actually shipped.
 - "First-level admin unit" is not comparable across countries — a US state, a
   French department, and a Maltese local council are all "admin-1" and span four
   orders of magnitude in size. Small units are penalized in the prominence score
-  so they don't clog Hard/Daily, but they're all still in Ironman.
+  so they don't clog Hard/Daily, but they're all still in Masochist!.
 - Largest-city hints are found by point-in-polygon against the full-resolution
   geometry; where no populated place falls inside a unit, the nearest city in the
   same country is shown and flagged "(near)".
+- **Continent is resolved per unit, not per country.** Natural Earth's country
+  layer carries one `CONTINENT` value per country, so every Russian unit came out
+  "Europe" — Kamchatka included — and continent is the *first* hint a Hard or
+  Daily player sees, so it was sending people to the wrong hemisphere. NE also
+  ships seven continent polygons (`FEATURECLA = "Continent"` in
+  `ne_10m_geography_regions_polys`) that follow the physical divides, and each
+  unit's point is tested against those.
+  Those outlines are coarse near the divides and overlap slightly, so an override
+  only stands where the point falls inside exactly one continent and at least
+  `CONTINENT_GUARD_KM` (25 km) inside it. That threshold is not a geographic
+  claim — it is how far a 1:10m outline is worth trusting. It moves the
+  unambiguous cases (26 Russian units to Asia; Siberia sits 100–2000 km inside
+  the polygon, French Guiana 129 km inside South America; Edirne and Kırklareli
+  to Europe) and declines to adjudicate the arguable ones, which keep the
+  country's value: Istanbul, the Azerbaijani Caspian coast, Melilla, and southern
+  Gaza — which naive point-in-polygon placed in **Africa**, 1 km the wrong side
+  of a coarse line.
+  A separate 89 island units belong to countries Natural Earth labels
+  "Seven seas (open ocean)" — Seychelles, Mauritius, the Maldives, St Helena.
+  Those had no usable continent at all and now take the nearest one.
+- Known gap: `subr` (subregion) is still inherited per country, so a Siberian
+  unit's subregion still reads "Eastern Europe". It only surfaces in the Novice
+  `region` hint when a unit has no city, so it is rarely seen. ☐ open
 - Units with mostly straight (surveyed / colonial) borders — much of the Sahara,
   the Canadian prairies, western US state lines — have little silhouette
   information even at full fidelity. Each unit carries a `distinct` (0..1)
   shape-distinctiveness score (boundary detail that survived simplification +
   straight-edge fraction + concavity + islands); Hard and Daily scale a
   question's draw weight by it, so Colorado / Saskatchewan / the desert oblasts
-  turn up ~20× less than an equally-prominent distinctive unit. Ironman and
+  turn up ~20× less than an equally-prominent distinctive unit. Masochist! and
   Novice ignore it. It can also feed scoring (`DISTINCT_SCORING` in config, off
   by default).
 - Two things about how `distinct` is measured. It runs on the **simplified**
